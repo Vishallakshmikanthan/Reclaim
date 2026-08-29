@@ -22,6 +22,10 @@ import { defaultVerificationService } from "../recovery/verificationService";
 import { calculateOperationalMetrics, OperationalMetrics, calculateMoneyImpact } from "../metrics/metricsService";
 import { formatCurrency } from "../utils";
 import { useToast } from "@/components/ui/Toast";
+import { Campaign, CampaignConfig, CampaignActivityItem } from "../campaigns/types";
+import { INITIAL_CAMPAIGNS, INITIAL_COMMUNICATIONS, evaluateCampaignEligibility } from "../campaigns/campaignService";
+import { CommunicationMessage, CommunicationChannel } from "../communications/types";
+import { generateRecoveryMessage } from "../communications/templateEngine";
 
 interface ExecuteOptions {
   forceScenario?: "success" | "timeout" | "block" | "failure" | "fallback_success" | "fallback_blocked";
@@ -30,6 +34,8 @@ interface ExecuteOptions {
 interface ReclaimContextType {
   cases: Case[];
   auditEvents: AuditEvent[];
+  campaigns: Campaign[];
+  communications: CommunicationMessage[];
   selectedCaseId: string | null;
   setSelectedCaseId: (id: string | null) => void;
   selectedCase: Case | null;
@@ -52,6 +58,12 @@ interface ReclaimContextType {
   stopCase: (caseId: string, reason?: string) => void;
   resetDemoData: () => void;
 
+  // Campaign & Communication Actions
+  runCampaignBatch: (campaignId: string) => Promise<boolean>;
+  toggleCampaignStatus: (campaignId: string) => void;
+  createCampaign: (config: CampaignConfig) => void;
+  sendCommunicationMessage: (caseId: string, channel: CommunicationChannel, language: "English" | "Hinglish") => Promise<boolean>;
+
   // Audit Dispatcher
   addAuditEvent: (event: Omit<AuditEvent, "id" | "timestamp">) => void;
 }
@@ -60,6 +72,8 @@ const ReclaimContext = createContext<ReclaimContextType | undefined>(undefined);
 
 const STORAGE_CASES_KEY = "reclaim_v1_cases";
 const STORAGE_AUDIT_KEY = "reclaim_v1_audit";
+const STORAGE_CAMPAIGNS_KEY = "reclaim_v1_campaigns";
+const STORAGE_COMMUNICATIONS_KEY = "reclaim_v1_communications";
 
 export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
@@ -92,6 +106,34 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     return INITIAL_AUDIT_EVENTS;
   });
 
+  const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_CAMPAIGNS_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse campaigns from localStorage:", e);
+        }
+      }
+    }
+    return INITIAL_CAMPAIGNS;
+  });
+
+  const [communications, setCommunications] = useState<CommunicationMessage[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_COMMUNICATIONS_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse communications from localStorage:", e);
+        }
+      }
+    }
+    return INITIAL_COMMUNICATIONS;
+  });
+
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   
   // Execution state & progress tracking per case
@@ -109,6 +151,18 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(STORAGE_AUDIT_KEY, JSON.stringify(auditEvents));
     }
   }, [auditEvents]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_CAMPAIGNS_KEY, JSON.stringify(campaigns));
+    }
+  }, [campaigns]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_COMMUNICATIONS_KEY, JSON.stringify(communications));
+    }
+  }, [communications]);
 
   // Deterministic metrics derived strictly from the dataset
   const metrics = useMemo(() => calculateOperationalMetrics(cases), [cases]);
@@ -161,7 +215,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Multi-Step Intelligent Recovery Strategy Orchestrator Pipeline
-   * Supports Primary Execution, Dynamic Policy Recheck, Fallback Chains, and Verification Safety.
    */
   const executeRecovery = useCallback(async (caseId: string, options?: ExecuteOptions): Promise<boolean> => {
     const targetCase = cases.find((c) => c.id === caseId);
@@ -357,7 +410,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     // Check special multi-step fallback scenarios
     if (effectiveScenario === "fallback_success") {
-      // Primary failed -> Trigger Fallback Chain
       addAuditEvent({
         layer: "LAYER 4",
         source: "EXECUTOR",
@@ -365,10 +417,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: `Primary retry timed out. Triggering autonomous fallback sequence.`,
         status: "FAILED",
-        details: {
-          reason: "Primary gateway retry unacknowledged.",
-          nextAction: "Select Fallback Intervention & Recheck Policy",
-        },
       });
 
       const fallbackStep = strategy.fallbackActions[0] || {
@@ -383,14 +431,8 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: `Selected Fallback Step 2: ${fallbackStep.label}. Initiating secondary policy evaluation.`,
         status: "INFO",
-        details: {
-          isFallback: true,
-          strategyStep: "FALLBACK_1",
-          nextAction: "Recheck Customer Contact Limit & Policy",
-        },
       });
 
-      // POLICY RECHECK
       addAuditEvent({
         layer: "LAYER 3",
         source: "POLICY_ENGINE",
@@ -398,13 +440,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: `Policy recheck: Customer contact frequency (1/2 in 24h) and link amount within limits. Authorized.`,
         status: "SUCCESS",
-        details: {
-          isFallback: true,
-          policyRule: "CUSTOMER_CONTACT_LIMIT",
-          threshold: "Max 2 contacts in 24h",
-          actualValue: "1 contact recorded",
-          nextAction: `Dispatch ${fallbackStep.label}`,
-        },
       });
 
       const fallbackIdempotencyKey = `rz_rec_fb_${targetCase.id}_${Date.now()}`;
@@ -416,12 +451,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: `Dispatched ${fallbackStep.label} via Gupshup/Razorpay Link API with key ${fallbackIdempotencyKey}.`,
         status: "INFO",
-        details: {
-          isFallback: true,
-          gateway: "Razorpay Test Links (v1/payment_links)",
-          idempotencyKey: fallbackIdempotencyKey,
-          amount: targetCase.amount,
-        },
       });
 
       await new Promise((res) => setTimeout(res, 600));
@@ -435,11 +464,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: `Customer completed payment via WhatsApp 1-Click Link. Captured ${formatCurrency(targetCase.amount)}. Ref: ${fallbackTxnId}`,
         status: "SUCCESS",
-        details: {
-          isFallback: true,
-          transactionId: fallbackTxnId,
-          amount: targetCase.amount,
-        },
       });
 
       addAuditEvent({
@@ -449,11 +473,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: `Fallback recovery verified by webhook telemetry. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
         status: "SUCCESS",
-        details: {
-          isFallback: true,
-          amount: targetCase.amount,
-          transactionId: fallbackTxnId,
-        },
       });
 
       addAuditEvent({
@@ -507,7 +526,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (effectiveScenario === "fallback_blocked") {
-      // Primary failed -> Fallback selected -> Blocked by Policy
       addAuditEvent({
         layer: "LAYER 4",
         source: "EXECUTOR",
@@ -518,28 +536,12 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       });
 
       addAuditEvent({
-        layer: "LAYER 2",
-        source: "AGENT",
-        event: "FALLBACK_SELECTED",
-        case: targetCase.id,
-        desc: `Selected Fallback: WhatsApp Payment Link. Re-evaluating policy guardrails.`,
-        status: "INFO",
-      });
-
-      addAuditEvent({
         layer: "LAYER 3",
         source: "POLICY_ENGINE",
         event: "FALLBACK_BLOCKED",
         case: targetCase.id,
         desc: `Fallback blocked: Customer contact limit exceeded (2/2 allowed contacts in 24h already reached).`,
         status: "BLOCKED",
-        details: {
-          policyRule: "CUSTOMER_CONTACT_LIMIT",
-          threshold: "Max 2 contacts in 24h",
-          actualValue: "2 contacts recorded",
-          reason: "Customer spam prevention policy engaged.",
-          nextAction: "Escalate to Human Queue",
-        },
       });
 
       addAuditEvent({
@@ -602,12 +604,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: "Gateway verification response timed out after 30s. Bounded safety: NO automatic duplicate retry or fallback dispatched.",
         status: "TIMEOUT",
-        details: {
-          gateway: "Razorpay Test Webhook / Polling",
-          idempotencyKey,
-          reason: "Gateway response unconfirmed after 30s.",
-          nextAction: "Halt automatic retry • Escalate to human reconciliation",
-        },
       });
 
       addAuditEvent({
@@ -617,10 +613,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: "Case escalated for manual reconciliation. Settlement status remains unconfirmed.",
         status: "TIMEOUT",
-        details: {
-          reason: "Ambiguous gateway response.",
-          nextAction: "Route to Manual Finance Reconciliation Queue",
-        },
       });
 
       setCases((prev) =>
@@ -660,12 +652,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: `Razorpay retry declined by issuing bank: ${verificationOutcome.message}`,
         status: "FAILED",
-        details: {
-          gateway: "Razorpay Test Gateway",
-          idempotencyKey,
-          reason: verificationOutcome.message,
-          nextAction: "Escalate to Customer Success Desk",
-        },
       });
 
       addAuditEvent({
@@ -675,10 +661,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         case: targetCase.id,
         desc: "Automated retry path exhausted. Case escalated to customer success desk.",
         status: "FAILED",
-        details: {
-          reason: "Issuer hard decline on automated retry.",
-          nextAction: "Assigned to VIP Customer Success Desk",
-        },
       });
 
       setCases((prev) =>
@@ -726,12 +708,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       case: targetCase.id,
       desc: `Razorpay Test Mode captured ${formatCurrency(targetCase.amount)}. Ref: ${txnId}`,
       status: "SUCCESS",
-      details: {
-        gateway: "Razorpay Test Mode Gateway",
-        transactionId: txnId,
-        idempotencyKey,
-        amount: targetCase.amount,
-      },
     });
 
     addAuditEvent({
@@ -741,10 +717,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       case: targetCase.id,
       desc: `Primary recovery verified by webhook telemetry. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
       status: "SUCCESS",
-      details: {
-        amount: targetCase.amount,
-        transactionId: txnId,
-      },
     });
 
     addAuditEvent({
@@ -754,15 +726,8 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       case: targetCase.id,
       desc: `Settled ${formatCurrency(targetCase.amount)} in ledger. Revenue at Risk reduced.`,
       status: "SUCCESS",
-      details: {
-        amount: targetCase.amount,
-        transactionId: txnId,
-        customer: targetCase.customer,
-        nextAction: "Case marked settled • No further action required",
-      },
     });
 
-    // Update case state to RECOVERED and record settlement details
     setCases((prev) =>
       prev.map((c) =>
         c.id === caseId
@@ -810,10 +775,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       case: targetCase.id,
       desc: reason ? `Escalated: ${reason}` : "Escalated to human operations desk.",
       status: "INFO",
-      details: {
-        reason: reason || "Manual escalation from Case Drawer",
-        nextAction: "Routed to Human Review Queue",
-      },
     });
 
     toast({
@@ -842,10 +803,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       case: targetCase.id,
       desc: reason ? `Stopped: ${reason}` : "Recovery stopped by operator.",
       status: "INFO",
-      details: {
-        reason: reason || "Operator manual intervention",
-        nextAction: "Permanent stop on autonomous retry",
-      },
     });
 
     toast({
@@ -855,18 +812,367 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     });
   }, [cases, addAuditEvent, toast]);
 
+  /**
+   * Batch Campaign Execution Orchestrator
+   */
+  const runCampaignBatch = useCallback(async (campaignId: string): Promise<boolean> => {
+    const campaign = campaigns.find((c) => c.id === campaignId);
+    if (!campaign) {
+      toast({ title: "Campaign Not Found", description: `Campaign ${campaignId} does not exist.`, type: "error" });
+      return false;
+    }
+
+    if (campaign.status === "RUNNING") {
+      toast({ title: "Campaign Already Running", description: `${campaign.config.name} is currently executing.`, type: "warning" });
+      return false;
+    }
+
+    // Set Campaign to RUNNING
+    setCampaigns((prev) =>
+      prev.map((c) => (c.id === campaignId ? { ...c, status: "RUNNING" } : c))
+    );
+
+    addAuditEvent({
+      layer: "LAYER 0",
+      source: "AGENT",
+      event: "CASE_CREATED",
+      case: campaignId,
+      desc: `Initiated batch recovery campaign: ${campaign.config.name}.`,
+      status: "INFO",
+    });
+
+    toast({
+      title: "Campaign Started 🚀",
+      description: `Processing ${campaign.config.name} across eligible cases...`,
+      type: "info",
+    });
+
+    // Evaluate eligible cases from current live pool
+    const { eligibleCases } = evaluateCampaignEligibility(cases, campaign.config);
+    const targetCases = eligibleCases.length > 0 ? eligibleCases : cases.slice(0, 3); // Fallback sample if pool is narrow
+
+    let processedCount = 0;
+    let recoveredCount = 0;
+    let recoveredRevenuePaise = 0;
+    let policyBlockCount = 0;
+    let failedCount = 0;
+    let escalationCount = 0;
+
+    const newActivity: CampaignActivityItem[] = [];
+    const newComms: CommunicationMessage[] = [];
+
+    for (let i = 0; i < targetCases.length; i++) {
+      const caseItem = targetCases[i];
+      processedCount += 1;
+
+      // Small execution delay to simulate real batch cadence
+      await new Promise((res) => setTimeout(res, 500));
+
+      const policy = evaluatePolicy(caseItem);
+      const isCommunicationAction = campaign.config.allowedChannels.includes("whatsapp") || campaign.config.allowedChannels.includes("sms") || campaign.config.allowedChannels.includes("email");
+
+      if (!policy.allowed) {
+        policyBlockCount += 1;
+        escalationCount += 1;
+
+        newActivity.unshift({
+          id: `act_${Date.now()}_${i}`,
+          timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }),
+          caseId: caseItem.id,
+          customerName: caseItem.customer,
+          action: "Layer 3 Policy Block",
+          status: "BLOCKED",
+          amount: caseItem.amount,
+          detail: `Blocked: ${policy.blockedRules[0] || "Policy guardrail failed"}. Escalated to human queue.`,
+        });
+
+        addAuditEvent({
+          layer: "LAYER 3",
+          source: "POLICY_ENGINE",
+          event: "POLICY_BLOCKED",
+          case: caseItem.id,
+          desc: `Campaign ${campaign.config.name} blocked action for ${caseItem.customer}: ${policy.blockedRules[0]}`,
+          status: "BLOCKED",
+        });
+
+        setCases((prev) =>
+          prev.map((c) => (c.id === caseItem.id ? { ...c, status: "escalated", lastError: policy.blockedRules[0] } : c))
+        );
+        continue;
+      }
+
+      // Successful or simulated execution
+      const channel: CommunicationChannel = campaign.config.allowedChannels[0] || "whatsapp";
+      const messageContent = generateRecoveryMessage(caseItem, channel, campaign.config.preferredLanguage, campaign.config.name);
+      const commId = `COMM-2026-${String(Date.now()).slice(-4)}-${i}`;
+      const txnId = `txn_cmp_${Date.now()}_${i}`;
+
+      const newMsg: CommunicationMessage = {
+        id: commId,
+        caseId: caseItem.id,
+        customerName: caseItem.customer,
+        customerPhone: caseItem.customerPhone,
+        amount: caseItem.amount,
+        channel,
+        channelName: channel === "whatsapp" ? "WhatsApp Business" : channel === "sms" ? "Gupshup SMS" : "SendGrid Email",
+        language: campaign.config.preferredLanguage,
+        templateKey: `tpl_${channel}_${campaign.config.preferredLanguage.toLowerCase()}`,
+        content: messageContent,
+        status: "DELIVERY_CONFIRMED_SIMULATED",
+        contactCount: (caseItem.contactCount24h || 0) + 1,
+        maxContacts: 2,
+        policyStatus: "Approved",
+        campaignId: campaign.id,
+        campaignName: campaign.config.name,
+        createdAt: new Date().toISOString(),
+        sentAt: new Date().toISOString(),
+        deliveredAt: new Date().toISOString(),
+        recoveredAfter: true,
+        transactionId: txnId,
+      };
+
+      newComms.unshift(newMsg);
+
+      recoveredCount += 1;
+      recoveredRevenuePaise += caseItem.amount;
+
+      newActivity.unshift({
+        id: `act_${Date.now()}_${i}`,
+        timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }),
+        caseId: caseItem.id,
+        customerName: caseItem.customer,
+        action: `Dispatched ${channel.toUpperCase()} & Recovered`,
+        status: "SUCCESS",
+        amount: caseItem.amount,
+        detail: `Captured ${formatCurrency(caseItem.amount)} via 1-click Razorpay link.`,
+      });
+
+      addAuditEvent({
+        layer: "LAYER 4",
+        source: "EXECUTOR",
+        event: "ACTION_SUCCEEDED",
+        case: caseItem.id,
+        desc: `Campaign recovered ${formatCurrency(caseItem.amount)} for ${caseItem.customer} via ${channel}.`,
+        status: "SUCCESS",
+      });
+
+      addAuditEvent({
+        layer: "LAYER 5",
+        source: "VERIFICATION",
+        event: "CASE_RESOLVED",
+        case: caseItem.id,
+        desc: `Settled ${formatCurrency(caseItem.amount)} in ledger.`,
+        status: "SUCCESS",
+      });
+
+      setCases((prev) =>
+        prev.map((c) =>
+          c.id === caseItem.id
+            ? {
+                ...c,
+                status: "recovered",
+                retryCount: c.retryCount + 1,
+                contactCount24h: c.contactCount24h + 1,
+                resolutionDetails: {
+                  recoveredAmount: c.amount,
+                  channel: `${channel.toUpperCase()} Link`,
+                  timestamp: new Date().toISOString(),
+                  transactionId: txnId,
+                },
+              }
+            : c
+        )
+      );
+    }
+
+    if (newComms.length > 0) {
+      setCommunications((prev) => [...newComms, ...prev]);
+    }
+
+    // Mark campaign COMPLETED and update stats
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === campaignId
+          ? {
+              ...c,
+              status: "COMPLETED",
+              stats: {
+                ...c.stats,
+                processedCases: c.stats.processedCases + processedCount,
+                recoveredCases: c.stats.recoveredCases + recoveredCount,
+                revenueRecovered: c.stats.revenueRecovered + recoveredRevenuePaise,
+                recoveryRate: Number((((c.stats.recoveredCases + recoveredCount) / Math.max(1, c.stats.processedCases + processedCount)) * 100).toFixed(1)),
+                policyBlocks: c.stats.policyBlocks + policyBlockCount,
+                failedActions: c.stats.failedActions + failedCount,
+                escalations: c.stats.escalations + escalationCount,
+                communicationsSent: c.stats.communicationsSent + newComms.length,
+                communicationsDelivered: c.stats.communicationsDelivered + newComms.length,
+              },
+              recentActivity: [...newActivity, ...c.recentActivity].slice(0, 20),
+            }
+          : c
+      )
+    );
+
+    addAuditEvent({
+      layer: "LAYER 5",
+      source: "VERIFICATION",
+      event: "CASE_RESOLVED",
+      case: campaignId,
+      desc: `Campaign ${campaign.config.name} completed. Processed ${processedCount} cases, recovered ${formatCurrency(recoveredRevenuePaise)}.`,
+      status: "SUCCESS",
+    });
+
+    toast({
+      title: "Campaign Completed! 🎉",
+      description: `Recovered ${formatCurrency(recoveredRevenuePaise)} across ${recoveredCount} cases in ${campaign.config.name}.`,
+      type: "success",
+      duration: 5000,
+    });
+
+    return true;
+  }, [campaigns, cases, addAuditEvent, toast]);
+
+  const toggleCampaignStatus = useCallback((campaignId: string) => {
+    setCampaigns((prev) =>
+      prev.map((c) => {
+        if (c.id === campaignId) {
+          const nextStatus = c.status === "RUNNING" ? "PAUSED" : c.status === "PAUSED" ? "READY" : "PAUSED";
+          toast({
+            title: nextStatus === "PAUSED" ? "Campaign Paused" : "Campaign Ready",
+            description: `${c.config.name} status updated to ${nextStatus}.`,
+            type: "info",
+          });
+          return { ...c, status: nextStatus };
+        }
+        return c;
+      })
+    );
+  }, [toast]);
+
+  const createCampaign = useCallback((config: CampaignConfig) => {
+    const newCampaign: Campaign = {
+      id: config.id,
+      config,
+      status: "READY",
+      stats: {
+        totalEligibleCases: 15,
+        processedCases: 0,
+        recoveredCases: 0,
+        revenueAtRisk: 12500000,
+        revenueRecovered: 0,
+        recoveryRate: 0,
+        policyBlocks: 0,
+        failedActions: 0,
+        escalations: 0,
+        stoppedCases: 0,
+        communicationsSent: 0,
+        communicationsDelivered: 0,
+      },
+      caseIds: [],
+      recentActivity: [],
+    };
+
+    setCampaigns((prev) => [newCampaign, ...prev]);
+
+    addAuditEvent({
+      layer: "LAYER 0",
+      source: "AGENT",
+      event: "CASE_CREATED",
+      case: config.id,
+      desc: `Created new recovery campaign: ${config.name}.`,
+      status: "INFO",
+    });
+
+    toast({
+      title: "Campaign Created",
+      description: `${config.name} configured and ready for execution.`,
+      type: "success",
+    });
+  }, [addAuditEvent, toast]);
+
+  const sendCommunicationMessage = useCallback(async (
+    caseId: string, 
+    channel: CommunicationChannel, 
+    language: "English" | "Hinglish"
+  ): Promise<boolean> => {
+    const targetCase = cases.find((c) => c.id === caseId);
+    if (!targetCase) return false;
+
+    if ((targetCase.contactCount24h || 0) >= 2) {
+      toast({
+        title: "Communication Blocked by Policy",
+        description: `Customer contact limit (2/2 in 24h) reached for ${targetCase.customer}. Prevented customer spam.`,
+        type: "warning",
+      });
+      return false;
+    }
+
+    const content = generateRecoveryMessage(targetCase, channel, language);
+    const commId = `COMM-2026-${String(Date.now()).slice(-4)}`;
+
+    const newMsg: CommunicationMessage = {
+      id: commId,
+      caseId: targetCase.id,
+      customerName: targetCase.customer,
+      customerPhone: targetCase.customerPhone,
+      amount: targetCase.amount,
+      channel,
+      channelName: channel === "whatsapp" ? "WhatsApp Business (Verified)" : channel === "sms" ? "Gupshup SMS Gateway" : "SendGrid Email",
+      language,
+      templateKey: `tpl_${channel}_${language.toLowerCase()}`,
+      content,
+      status: "DELIVERY_CONFIRMED_SIMULATED",
+      contactCount: (targetCase.contactCount24h || 0) + 1,
+      maxContacts: 2,
+      policyStatus: "Approved",
+      createdAt: new Date().toISOString(),
+      sentAt: new Date().toISOString(),
+      deliveredAt: new Date().toISOString(),
+      recoveredAfter: true,
+      transactionId: `txn_comm_${Date.now()}`,
+    };
+
+    setCommunications((prev) => [newMsg, ...prev]);
+
+    setCases((prev) =>
+      prev.map((c) => (c.id === caseId ? { ...c, contactCount24h: (c.contactCount24h || 0) + 1 } : c))
+    );
+
+    addAuditEvent({
+      layer: "LAYER 4",
+      source: "EXECUTOR",
+      event: "ACTION_EXECUTED",
+      case: targetCase.id,
+      desc: `Simulated dispatch of ${channel.toUpperCase()} message in ${language} to ${targetCase.customer}.`,
+      status: "INFO",
+    });
+
+    toast({
+      title: "Message Dispatched (Simulated)",
+      description: `Sent ${channel.toUpperCase()} recovery reminder to ${targetCase.customer}.`,
+      type: "success",
+    });
+
+    return true;
+  }, [cases, addAuditEvent, toast]);
+
   const resetDemoData = useCallback(() => {
     setCases(INITIAL_MOCK_CASES);
     setAuditEvents(INITIAL_AUDIT_EVENTS);
+    setCampaigns(INITIAL_CAMPAIGNS);
+    setCommunications(INITIAL_COMMUNICATIONS);
     setExecutionProgressMap({});
     setSelectedCaseId(null);
     if (typeof window !== "undefined") {
       localStorage.removeItem(STORAGE_CASES_KEY);
       localStorage.removeItem(STORAGE_AUDIT_KEY);
+      localStorage.removeItem(STORAGE_CAMPAIGNS_KEY);
+      localStorage.removeItem(STORAGE_COMMUNICATIONS_KEY);
     }
     toast({
       title: "Demo State Reset",
-      description: "Restored initial cases, metrics, and audit ledger.",
+      description: "Restored initial campaigns, cases, metrics, and audit ledger.",
       type: "info",
     });
   }, [toast]);
@@ -876,6 +1182,8 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       value={{
         cases,
         auditEvents,
+        campaigns,
+        communications,
         selectedCaseId,
         setSelectedCaseId,
         selectedCase,
@@ -891,6 +1199,10 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         escalateCase,
         stopCase,
         resetDemoData,
+        runCampaignBatch,
+        toggleCampaignStatus,
+        createCampaign,
+        sendCommunicationMessage,
         addAuditEvent,
       }}
     >
