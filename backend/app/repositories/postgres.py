@@ -4,6 +4,11 @@ from sqlalchemy.exc import IntegrityError
 from ..db.models import *
 from ..schemas import *
 
+def _val(x):
+    if x is None:
+        return None
+    return x.value if hasattr(x, "value") else str(x)
+
 class PostgresRepositories:
     """Merchant-scoped SQLAlchemy repositories; API models never expose ORM rows."""
     def __init__(self, session, merchant_id: str): self.session, self.merchant_id = session, merchant_id
@@ -14,18 +19,22 @@ class PostgresRepositories:
         row=self.session.scalar(select(CaseModel).where(CaseModel.id==case_id,CaseModel.merchant_id==self.merchant_id)); return self.to_case(row) if row else None
     def list_cases(self,status=None,failure_type=None,priority=None,page=1,page_size=25):
         q=select(CaseModel).where(CaseModel.merchant_id==self.merchant_id)
-        if status: q=q.where(CaseModel.status==status.value)
-        if failure_type: q=q.where(CaseModel.failure_type==failure_type.value)
+        if status: q=q.where(CaseModel.status==_val(status))
+        if failure_type: q=q.where(CaseModel.failure_type==_val(failure_type))
         if priority: q=q.where(CaseModel.priority==priority)
         total=self.session.scalar(select(func.count()).select_from(q.subquery())) or 0
         rows=self.session.scalars(q.order_by(CaseModel.created_at.desc()).offset((page-1)*page_size).limit(page_size)).all()
         return [self.to_case(x) for x in rows], total
     def create_case(self, case):
-        self.ensure_merchant(); payload=case.model_dump(mode="json"); payment=PaymentModel(id=case.payment_id,merchant_id=self.merchant_id,external_reference=case.order_id,amount_minor=case.amount,currency="INR",payment_method=case.payment_method.value,failure_type=case.failure_type.value)
-        self.session.add(payment); self.session.add(CaseModel(id=case.id,merchant_id=self.merchant_id,payment_id=case.payment_id,status=case.status.value,priority=self.priority(case),failure_type=case.failure_type.value,recovery_probability=case.prob,expected_recovery_minor=case.expected,payload=payload,retry_count=case.retry_count,contact_count=case.contact_count_24h)); self.session.flush(); return case
+        self.ensure_merchant(); payload=case.model_dump(mode="json")
+        if not self.session.get(PaymentModel, case.payment_id):
+            payment=PaymentModel(id=case.payment_id,merchant_id=self.merchant_id,external_reference=case.order_id,amount_minor=case.amount,currency="INR",payment_method=_val(case.payment_method),failure_type=_val(case.failure_type))
+            self.session.add(payment); self.session.flush()
+        self.session.add(CaseModel(id=case.id,merchant_id=self.merchant_id,payment_id=case.payment_id,status=_val(case.status),priority=self.priority(case),failure_type=_val(case.failure_type),recovery_probability=case.prob,expected_recovery_minor=case.expected,payload=payload,retry_count=case.retry_count,contact_count=case.contact_count_24h))
+        self.session.flush(); return case
     def priority(self, case): return "Critical" if case.amount>500000 else "High" if case.prob>.5 else "Medium"
     def save_case(self, case):
-        row=self.session.scalar(select(CaseModel).where(CaseModel.id==case.id,CaseModel.merchant_id==self.merchant_id)); row.status=case.status.value; row.recovered_amount_minor=case.recovered_amount; row.retry_count=case.retry_count; row.contact_count=case.contact_count_24h; row.payload=case.model_dump(mode="json"); row.resolved_at=datetime.now(timezone.utc) if case.status==CaseStatus.recovered else None
+        row=self.session.scalar(select(CaseModel).where(CaseModel.id==case.id,CaseModel.merchant_id==self.merchant_id)); row.status=_val(case.status); row.recovered_amount_minor=case.recovered_amount; row.retry_count=case.retry_count; row.contact_count=case.contact_count_24h; row.payload=case.model_dump(mode="json"); row.resolved_at=datetime.now(timezone.utc) if _val(case.status)==CaseStatus.recovered.value else None
     def active_policy(self):
         row=self.session.scalar(select(PolicyModel).where(PolicyModel.merchant_id==self.merchant_id,PolicyModel.active.is_(True))); return self.to_policy(row) if row else None
     def to_policy(self,row): return PolicyVersion(version=row.version,created_at=row.created_at,created_by=row.created_by,configuration=PolicyConfiguration.model_validate(row.configuration),active=row.active)
@@ -37,7 +46,7 @@ class PostgresRepositories:
     def to_action(self,row): return RecoveryAction(action_id=row.id,case_id=row.case_id,strategy=row.action_type,status=row.status,policy_version=row.policy_version,idempotency_key=row.idempotency_key,verification_status=row.verification_status,created_at=row.created_at,transaction_id=row.transaction_id)
     def action_exists_for_case(self,case_id): return self.session.scalar(select(RecoveryActionModel.id).where(RecoveryActionModel.case_id==case_id,RecoveryActionModel.merchant_id==self.merchant_id)) is not None
     def create_action(self,action,amount):
-        self.session.add(RecoveryActionModel(id=action.action_id,case_id=action.case_id,merchant_id=self.merchant_id,action_type=action.strategy.value,status=action.status.value,idempotency_key=action.idempotency_key,policy_version=action.policy_version,amount_minor=amount,verification_status=action.verification_status,transaction_id=action.transaction_id)); self.session.flush(); return action
+        self.session.add(RecoveryActionModel(id=action.action_id,case_id=action.case_id,merchant_id=self.merchant_id,action_type=_val(action.strategy),status=_val(action.status),idempotency_key=action.idempotency_key,policy_version=action.policy_version,amount_minor=amount,verification_status=action.verification_status,transaction_id=action.transaction_id)); self.session.flush(); return action
     def audit(self,event): self.session.add(AuditEventModel(id=event.event_id,merchant_id=self.merchant_id,event_type=event.event_type,case_id=event.case_id,campaign_id=event.campaign_id,policy_version=event.policy_version,actor=event.actor,timestamp=event.timestamp,metadata_json=event.metadata)); self.session.flush(); return event
     def events(self,case_id=None,campaign_id=None,page=1,page_size=100):
         q=select(AuditEventModel).where(AuditEventModel.merchant_id==self.merchant_id)
@@ -45,13 +54,13 @@ class PostgresRepositories:
         if campaign_id:q=q.where(AuditEventModel.campaign_id==campaign_id)
         total=self.session.scalar(select(func.count()).select_from(q.subquery())) or 0; rows=self.session.scalars(q.order_by(AuditEventModel.timestamp.desc()).offset((page-1)*page_size).limit(page_size)).all()
         return [AuditEvent(event_id=x.id,event_type=x.event_type,case_id=x.case_id,campaign_id=x.campaign_id,policy_version=x.policy_version,timestamp=x.timestamp,actor=x.actor,metadata=x.metadata_json) for x in rows],total
-    def create_campaign(self,c): self.ensure_merchant(); self.session.add(CampaignModel(id=c.id,merchant_id=self.merchant_id,name=c.name,type=c.type,status=c.status.value,configuration={"description":c.description,"min_probability":c.min_probability,"case_ids":c.case_ids})); self.session.flush(); return c
+    def create_campaign(self,c): self.ensure_merchant(); self.session.add(CampaignModel(id=c.id,merchant_id=self.merchant_id,name=c.name,type=c.type,status=_val(c.status),configuration={"description":c.description,"min_probability":c.min_probability,"case_ids":c.case_ids})); self.session.flush(); return c
     def campaigns(self): return [self.to_campaign(x) for x in self.session.scalars(select(CampaignModel).where(CampaignModel.merchant_id==self.merchant_id)).all()]
     def to_campaign(self,x): return Campaign(id=x.id,name=x.name,type=x.type,status=x.status,description=x.configuration.get("description",""),min_probability=x.configuration.get("min_probability",.2),case_ids=x.configuration.get("case_ids",[]),created_at=x.created_at,updated_at=x.updated_at)
     def campaign(self,id):
         x=self.session.scalar(select(CampaignModel).where(CampaignModel.id==id,CampaignModel.merchant_id==self.merchant_id)); return self.to_campaign(x) if x else None
-    def save_campaign(self,c): self.session.query(CampaignModel).filter_by(id=c.id,merchant_id=self.merchant_id).update({"status":c.status.value,"updated_at":datetime.now(timezone.utc)})
-    def create_communication(self,c): self.session.add(CommunicationModel(id=c.id,merchant_id=self.merchant_id,case_id=c.case_id,campaign_id=c.campaign_id,channel=c.channel.value,status=c.status,message=c.content)); self.session.flush(); return c
+    def save_campaign(self,c): self.session.query(CampaignModel).filter_by(id=c.id,merchant_id=self.merchant_id).update({"status":_val(c.status),"updated_at":datetime.now(timezone.utc)})
+    def create_communication(self,c): self.session.add(CommunicationModel(id=c.id,merchant_id=self.merchant_id,case_id=c.case_id,campaign_id=c.campaign_id,channel=_val(c.channel),status=c.status,message=c.content)); self.session.flush(); return c
     def communications(self):
         return [Communication(id=x.id,case_id=x.case_id,campaign_id=x.campaign_id,channel=x.channel,status=x.status,content=x.message,created_at=x.created_at) for x in self.session.scalars(select(CommunicationModel).where(CommunicationModel.merchant_id==self.merchant_id)).all()]
     def communication(self,id): return next((x for x in self.communications() if x.id==id),None)
