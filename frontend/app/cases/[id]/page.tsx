@@ -13,6 +13,7 @@ import { ExecutionTimeline } from "@/components/ui/ExecutionTimeline";
 import { RecoveryStrategyTimeline } from "@/components/ui/RecoveryStrategyTimeline";
 import { AuditEventDrawer } from "@/components/AuditEventDrawer";
 import { useReclaim } from "@/lib/context/ReclaimContext";
+import { services } from "@/lib/services/serviceFactory";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
 import { Case, AuditEvent } from "@/lib/types";
 import { 
@@ -75,29 +76,28 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
 
   const [currentCase, setCurrentCase] = useState<any>(null);
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_USE_MOCKS === 'true') {
-      setCurrentCase(getCaseById(caseId) || cases[0]);
-    } else {
-      const fetchCase = async () => {
-        try {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"}/api/v1/cases/${caseId}`);
-          if (res.ok) {
-            const data = await res.json();
-            setCurrentCase(data);
-          } else {
-             setCurrentCase(getCaseById(caseId) || cases[0]);
-          }
-        } catch (e) {
-          setCurrentCase(getCaseById(caseId) || cases[0]);
+    const fetchCase = async () => {
+      try {
+        const data = await services.caseRepo.getCaseById(caseId);
+        if (data) {
+          setCurrentCase(data);
+        } else {
+          setError("CASE_NOT_FOUND");
         }
-      };
-      fetchCase();
-    }
-  }, [caseId, getCaseById, cases]);
+      } catch (e) {
+        setError("SERVER_ERROR");
+      }
+    };
+    fetchCase();
+  }, [caseId]);
 
   // Loading state if no currentCase yet
   if (!currentCase) {
+    if (error === "CASE_NOT_FOUND") return <div className="p-8 text-center text-slate-500">Case not found.</div>;
+    if (error) return <div className="p-8 text-center text-red-500">An error occurred loading the case.</div>;
     return <div className="p-8 text-center text-slate-500 animate-pulse">Loading case details...</div>;
   }
 
@@ -111,30 +111,9 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
   
   useEffect(() => {
     if (currentCase) {
-      if (process.env.NEXT_PUBLIC_USE_MOCKS === 'true') {
-        setAiDecision(getCaseDecision(currentCase));
-        setStrategy(getCaseStrategy(currentCase));
-      } else {
-        const fetchDecision = async () => {
-          try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"}/api/v1/cases/${currentCase.id}/recovery/decision`, { method: "POST" });
-            const data = await res.json();
-            if (res.ok) {
-              setAiDecision(data);
-              // The backend decision is usually the strategy as well, or we mock strategy from decision.
-              // We'll mock strategy using getCaseStrategy for now as backend might just return decision.
-              setStrategy(getCaseStrategy(currentCase));
-            } else {
-              setAiDecision(getCaseDecision(currentCase));
-              setStrategy(getCaseStrategy(currentCase));
-            }
-          } catch (e) {
-             setAiDecision(getCaseDecision(currentCase));
-             setStrategy(getCaseStrategy(currentCase));
-          }
-        };
-        fetchDecision();
-      }
+      // Step 17B: Read-Only Integration (No mutations like POST /decision yet). Use local decision for now.
+      setAiDecision(getCaseDecision(currentCase));
+      setStrategy(getCaseStrategy(currentCase));
     }
   }, [currentCase, getCaseDecision, getCaseStrategy]);
 

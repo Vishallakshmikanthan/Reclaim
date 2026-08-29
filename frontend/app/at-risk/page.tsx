@@ -48,7 +48,7 @@ function AtRiskContent() {
   const apiFailure = failureFilter !== "ALL" ? failureFilter : undefined;
   const apiPriority = activeTab === "High Priority" ? "high" : undefined;
 
-  const { items: apiCases, isLoading: isApiLoading } = useCasesApi({
+  const { items: apiCases, isLoading: isApiLoading, error: apiError } = useCasesApi({
     status: apiStatus,
     failure_type: apiFailure,
     priority: apiPriority,

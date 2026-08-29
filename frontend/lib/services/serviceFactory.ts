@@ -50,7 +50,7 @@ class ServiceFactory {
           auditRepo: new HttpAuditRepository(),
           campaignRepo: new HttpCampaignRepository(),
           communicationRepo: new HttpCommunicationRepository(),
-          recoveryExecutor: new HttpRecoveryExecutor(),
+          recoveryExecutor: defaultRecoveryExecutor, // Enforce no mutation step 17b
           verificationService: new HttpVerificationService(),
         };
       }
