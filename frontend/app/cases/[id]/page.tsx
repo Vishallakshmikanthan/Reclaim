@@ -14,6 +14,7 @@ import { RecoveryStrategyTimeline } from "@/components/ui/RecoveryStrategyTimeli
 import { AuditEventDrawer } from "@/components/AuditEventDrawer";
 import { useReclaim } from "@/lib/context/ReclaimContext";
 import { services } from "@/lib/services/serviceFactory";
+import { apiClient } from "@/lib/api/client";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
 import { Case, AuditEvent } from "@/lib/types";
 import { 
@@ -108,12 +109,50 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
   // Dynamic AI synthesis, risk signals, deterministic policy check, and intelligent recovery strategy
   const [aiDecision, setAiDecision] = useState<any>(null);
   const [strategy, setStrategy] = useState<any>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
   
   useEffect(() => {
     if (currentCase) {
-      // Step 17B: Read-Only Integration (No mutations like POST /decision yet). Use local decision for now.
-      setAiDecision(getCaseDecision(currentCase));
-      setStrategy(getCaseStrategy(currentCase));
+      if (process.env.NEXT_PUBLIC_USE_MOCKS === 'true') {
+        setAiDecision(getCaseDecision(currentCase));
+        setStrategy(getCaseStrategy(currentCase));
+      } else {
+        const fetchBackendDecision = async () => {
+          try {
+            const res = await apiClient.post<any>(`/api/v1/cases/${currentCase.id}/recovery/decision`);
+            const localDecision = getCaseDecision(currentCase);
+            const localStrategy = getCaseStrategy(currentCase);
+
+            setAiDecision({
+              ...localDecision,
+              caseId: res.case_id,
+              recoveryProbability: res.recovery_probability,
+              expectedRecovery: res.expected_recovery,
+              recommendedIntervention: res.strategy,
+              whyThisAction: res.explanation || localDecision.whyThisAction,
+              whyThisMatters: res.explanation || localDecision.whyThisMatters,
+            });
+
+            setStrategy({
+              ...localStrategy,
+              caseId: res.case_id,
+              priority: (res.priority.charAt(0).toUpperCase() + res.priority.slice(1).toLowerCase()),
+              explanation: res.explanation || localStrategy.explanation,
+              primaryAction: {
+                ...localStrategy.primaryAction,
+                label: res.next_step || localStrategy.primaryAction.label,
+                expectedRecovery: res.expected_recovery,
+                recoveryProbability: res.recovery_probability,
+              },
+            });
+          } catch (err: any) {
+            setAiDecision(getCaseDecision(currentCase));
+            setStrategy(getCaseStrategy(currentCase));
+            setDecisionError(err.message || "Failed to fetch authoritative decision");
+          }
+        };
+        fetchBackendDecision();
+      }
     }
   }, [currentCase, getCaseDecision, getCaseStrategy]);
 

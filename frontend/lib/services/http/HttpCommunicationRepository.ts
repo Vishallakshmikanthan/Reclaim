@@ -1,10 +1,51 @@
 import { ICommunicationRepository } from "../campaignRepository";
-import { CommunicationMessage } from "../../communications/types";
+import { CommunicationMessage, CommunicationChannel, CommunicationStatus } from "../../communications/types";
 import { apiClient } from "../../api/client";
+
+export interface BackendCommunication {
+  id: string;
+  case_id: string;
+  channel: string;
+  content: string;
+  status: string;
+  campaign_id: string | null;
+  created_at: string;
+}
+
+export function mapBackendCommunicationToFrontend(bc: BackendCommunication): CommunicationMessage {
+  const channelNames: Record<string, string> = {
+    whatsapp: "WhatsApp Business (Verified)",
+    sms: "Gupshup SMS Gateway",
+    email: "SendGrid Email",
+    in_app: "In-App Push Notification",
+  };
+
+  return {
+    id: bc.id,
+    caseId: bc.case_id,
+    customerName: `Customer (${bc.case_id})`,
+    amount: 0,
+    channel: bc.channel as CommunicationChannel,
+    channelName: channelNames[bc.channel] || "Simulated Channel",
+    language: "English",
+    templateKey: `tpl_${bc.channel}_default`,
+    content: bc.content,
+    status: (bc.status as CommunicationStatus) || "SENT_SIMULATED",
+    contactCount: 1,
+    maxContacts: 2,
+    policyStatus: "Approved",
+    campaignId: bc.campaign_id || undefined,
+    createdAt: bc.created_at,
+    sentAt: bc.created_at,
+    deliveredAt: bc.created_at,
+    recoveredAfter: true,
+  };
+}
 
 export class HttpCommunicationRepository implements ICommunicationRepository {
   public async getAllCommunications(): Promise<CommunicationMessage[]> {
-    return await apiClient.get<CommunicationMessage[]>("/api/v1/communications");
+    const res = await apiClient.get<BackendCommunication[]>("/api/v1/communications");
+    return (res || []).map(mapBackendCommunicationToFrontend);
   }
 
   public async getCommunicationsByCase(caseId: string): Promise<CommunicationMessage[]> {
@@ -18,22 +59,17 @@ export class HttpCommunicationRepository implements ICommunicationRepository {
   }
 
   public async addCommunication(comm: CommunicationMessage): Promise<CommunicationMessage> {
-    // The backend uses snake_case, frontend might use camelCase. We'll adapt if necessary,
-    // but assuming types map closely.
     const payload = {
       case_id: comm.caseId,
-      campaign_id: comm.campaignId,
       channel: comm.channel,
-      language: comm.language,
       content: comm.content,
-      status: comm.status
+      campaign_id: comm.campaignId || null,
     };
-    return await apiClient.post<CommunicationMessage>("/api/v1/communications", payload);
+    const res = await apiClient.post<BackendCommunication>("/api/v1/communications", payload);
+    return mapBackendCommunicationToFrontend(res);
   }
-
 
   public async resetToInitial(): Promise<any> {
     return this.getAllCommunications();
   }
-
 }

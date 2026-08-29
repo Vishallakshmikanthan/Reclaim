@@ -7,6 +7,9 @@ export interface ICampaignRepository {
   getAllCampaigns(): Promise<Campaign[]>;
   getCampaignById(id: string): Promise<Campaign | undefined>;
   saveCampaign(campaign: Campaign): Promise<Campaign>;
+  startCampaign(id: string): Promise<any>;
+  pauseCampaign(id: string): Promise<any>;
+  resumeCampaign(id: string): Promise<any>;
   resetToInitial(): Promise<Campaign[]>;
 }
 
@@ -32,6 +35,33 @@ export class MockCampaignRepository implements ICampaignRepository {
     }
     BrowserStorage.setItem(STORAGE_KEYS.CAMPAIGNS, updated);
     return campaign;
+  }
+
+  public async startCampaign(id: string): Promise<any> {
+    const campaign = await this.getCampaignById(id);
+    if (campaign) {
+      campaign.status = "RUNNING";
+      await this.saveCampaign(campaign);
+    }
+    return { campaign_id: id, status: "RUNNING", message: "Campaign started (Mock)" };
+  }
+
+  public async pauseCampaign(id: string): Promise<any> {
+    const campaign = await this.getCampaignById(id);
+    if (campaign) {
+      campaign.status = "PAUSED";
+      await this.saveCampaign(campaign);
+    }
+    return { campaign_id: id, status: "PAUSED", message: "Campaign paused (Mock)" };
+  }
+
+  public async resumeCampaign(id: string): Promise<any> {
+    const campaign = await this.getCampaignById(id);
+    if (campaign) {
+      campaign.status = "RUNNING";
+      await this.saveCampaign(campaign);
+    }
+    return { campaign_id: id, status: "RUNNING", message: "Campaign resumed (Mock)" };
   }
 
   public async resetToInitial(): Promise<Campaign[]> {

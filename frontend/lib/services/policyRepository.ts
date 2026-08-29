@@ -9,6 +9,7 @@ import {
 export interface IPolicyRepository {
   getActivePolicy(): Promise<MerchantPolicy>;
   saveActivePolicy(policy: MerchantPolicy): Promise<MerchantPolicy>;
+  updatePolicy(updates: Partial<MerchantPolicy>, changeSummary: string, actor?: string): Promise<MerchantPolicy>;
   getPolicyHistory(): Promise<PolicyVersionHistoryItem[]>;
   addHistoryItem(item: PolicyVersionHistoryItem): Promise<void>;
   resetToInitial(): Promise<{ activePolicy: MerchantPolicy; history: PolicyVersionHistoryItem[] }>;
@@ -22,6 +23,12 @@ export class MockPolicyRepository implements IPolicyRepository {
   public async saveActivePolicy(policy: MerchantPolicy): Promise<MerchantPolicy> {
     BrowserStorage.setItem(STORAGE_KEYS.MERCHANT_POLICY, policy);
     return policy;
+  }
+
+  public async updatePolicy(updates: Partial<MerchantPolicy>, changeSummary: string, actor: string = "Merchant Admin"): Promise<MerchantPolicy> {
+    const current = await this.getActivePolicy();
+    const merged = { ...current, ...updates, changeSummary, updatedBy: actor };
+    return this.saveActivePolicy(merged);
   }
 
   public async getPolicyHistory(): Promise<PolicyVersionHistoryItem[]> {
