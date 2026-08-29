@@ -4,7 +4,7 @@ export interface ExecutionRequest {
   caseId: string;
   amount: number; // in paise
   paymentMethod: string;
-  intervention: RecommendedInterventionType;
+  intervention: RecommendedInterventionType | string;
   strategy: string;
   idempotencyKey: string;
   isTestMode: boolean;

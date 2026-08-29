@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useReclaim } from "@/lib/context/ReclaimContext";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
 import { ExecutionTimeline } from "@/components/ui/ExecutionTimeline";
+import { RecoveryStrategyTimeline } from "@/components/ui/RecoveryStrategyTimeline";
 import { Case } from "@/lib/types";
 import { 
   Play, 
@@ -46,6 +47,7 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
   const { 
     getCaseById, 
     getCaseDecision, 
+    getCaseStrategy,
     getCasePolicy, 
     getCaseExecutionProgress,
     getCaseExecutionState, 
@@ -61,8 +63,9 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
   const currentCase = getCaseById(initialCase.id) || initialCase;
   const executionState = getCaseExecutionState(currentCase.id);
 
-  // Synthesize dynamic AI recommendation, risk signals, and evaluate deterministic policies
+  // Synthesize dynamic AI recommendation, risk signals, intelligent strategy, and deterministic policies
   const aiDecision = getCaseDecision(currentCase);
+  const strategy = getCaseStrategy(currentCase);
   const policyResult = getCasePolicy(currentCase);
   const signals = extractRiskSignals(currentCase);
 
@@ -320,6 +323,12 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
               ))}
             </div>
           </div>
+
+          {/* Intelligent Recovery Strategy & Multi-Step Fallback Chain */}
+          <RecoveryStrategyTimeline 
+            strategy={strategy} 
+            currentExecutionStep={executionState} 
+          />
 
           {/* 7. Deterministic Policy Checks (Layer 3) */}
           <div className="p-4 rounded-xl border border-slate-200/80 dark:border-border-subtle bg-white dark:bg-surface space-y-3">

@@ -9,12 +9,14 @@ import {
   AuditEventType, 
   AuditLayer,
   AuditLayerSource,
-  ExecutionProgress
+  ExecutionProgress,
+  RecoveryStrategy
 } from "../types";
 import { INITIAL_MOCK_CASES } from "../mock-data/mockCases";
 import { INITIAL_AUDIT_EVENTS } from "../mock-data/mockAuditEvents";
 import { evaluatePolicy } from "../policy/policyEngine";
 import { synthesizeDecision } from "../recovery/decision-engine";
+import { buildRecoveryStrategy } from "../recovery/strategyEngine";
 import { defaultRecoveryExecutor, ExecutionRequest } from "../recovery/recoveryExecutor";
 import { defaultVerificationService } from "../recovery/verificationService";
 import { calculateOperationalMetrics, OperationalMetrics, calculateMoneyImpact } from "../metrics/metricsService";
@@ -22,7 +24,7 @@ import { formatCurrency } from "../utils";
 import { useToast } from "@/components/ui/Toast";
 
 interface ExecuteOptions {
-  forceScenario?: "success" | "timeout" | "block" | "failure";
+  forceScenario?: "success" | "timeout" | "block" | "failure" | "fallback_success" | "fallback_blocked";
 }
 
 interface ReclaimContextType {
@@ -35,9 +37,10 @@ interface ReclaimContextType {
   // Real-time deterministic metrics
   metrics: OperationalMetrics;
 
-  // Decision & Policy getters
+  // Decision, Strategy & Policy getters
   getCaseById: (id: string) => Case | undefined;
   getCaseDecision: (caseItem: Case) => RecoveryDecision;
+  getCaseStrategy: (caseItem: Case) => RecoveryStrategy;
   getCasePolicy: (caseItem: Case) => PolicyResult;
   getCaseExecutionProgress: (id: string) => ExecutionProgress;
   getCaseExecutionState: (id: string) => string;
@@ -136,6 +139,10 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     return synthesizeDecision(caseItem);
   }, []);
 
+  const getCaseStrategy = useCallback((caseItem: Case): RecoveryStrategy => {
+    return buildRecoveryStrategy(caseItem);
+  }, []);
+
   const getCasePolicy = useCallback((caseItem: Case): PolicyResult => {
     return evaluatePolicy(caseItem);
   }, []);
@@ -153,8 +160,8 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /**
-   * Complete End-to-End Revenue Recovery Loop Execution Pipeline
-   * DETECT -> ANALYZE -> DECIDE -> POLICY CHECK -> ACT (Razorpay Test Mode) -> VERIFY -> RECOVER / FAIL / ESCALATE -> AUDIT
+   * Multi-Step Intelligent Recovery Strategy Orchestrator Pipeline
+   * Supports Primary Execution, Dynamic Policy Recheck, Fallback Chains, and Verification Safety.
    */
   const executeRecovery = useCallback(async (caseId: string, options?: ExecuteOptions): Promise<boolean> => {
     const targetCase = cases.find((c) => c.id === caseId);
@@ -184,22 +191,37 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     }
 
     const decision = synthesizeDecision(targetCase);
+    const strategy = buildRecoveryStrategy(targetCase);
     const policy = evaluatePolicy(targetCase);
     const effectiveScenario = options?.forceScenario || targetCase.demoScenario || "A_SUCCESS";
     const idempotencyKey = `rz_rec_${targetCase.id}_${Date.now()}`;
 
-    // --- STEP 1: LAYER 3 POLICY CHECK (AUTHORIZING) ---
+    // --- STEP 1: LAYER 3 POLICY CHECK (PRIMARY ACTION) ---
     setExecutionProgressMap((prev) => ({
       ...prev,
-      [caseId]: { caseId, step: "authorizing", idempotencyKey }
+      [caseId]: { caseId, step: "authorizing", idempotencyKey, currentIntervention: strategy.primaryAction.label }
     }));
+
+    addAuditEvent({
+      layer: "LAYER 2",
+      source: "AGENT",
+      event: "STRATEGY_CREATED",
+      case: targetCase.id,
+      desc: `Orchestrated ${strategy.steps.length}-step recovery chain: ${strategy.primaryAction.label} → Fallback: ${strategy.fallbackActions[0]?.label || 'Human Escalation'}.`,
+      status: "INFO",
+      details: {
+        strategyStep: "PRIMARY",
+        amount: targetCase.amount,
+        nextAction: "Evaluate against Layer 3 Policy Guardrails",
+      },
+    });
 
     addAuditEvent({
       layer: "LAYER 3",
       source: "POLICY_ENGINE",
       event: "POLICY_CHECKED",
       case: targetCase.id,
-      desc: `Evaluating 6 deterministic rules for ${decision.recommendedIntervention}.`,
+      desc: `Evaluating 6 deterministic rules for primary action: ${strategy.primaryAction.label}.`,
       status: "INFO",
       details: {
         amount: targetCase.amount,
@@ -208,9 +230,9 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       },
     });
 
-    await new Promise((res) => setTimeout(res, 600));
+    await new Promise((res) => setTimeout(res, 500));
 
-    // Check if Scenario B or policy fails
+    // Check if Primary is blocked by policy
     if (!policy.allowed || effectiveScenario === "block" || effectiveScenario === "B_POLICY_BLOCK") {
       setExecutionProgressMap((prev) => ({
         ...prev,
@@ -277,14 +299,14 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         policyRule: "ALL_RULES_PASSED",
         threshold: "6/6 Rules",
         actualValue: "Approved",
-        nextAction: `Dispatch ${decision.recommendedIntervention} (Layer 4)`,
+        nextAction: `Dispatch ${strategy.primaryAction.label} (Layer 4)`,
       },
     });
 
-    // --- STEP 2: LAYER 4 RAZORPAY TEST MODE EXECUTION (EXECUTING) ---
+    // --- STEP 2: LAYER 4 RAZORPAY TEST MODE PRIMARY EXECUTION ---
     setExecutionProgressMap((prev) => ({
       ...prev,
-      [caseId]: { caseId, step: "executing", idempotencyKey, gateway: "Razorpay Test Gateway" }
+      [caseId]: { caseId, step: "executing", idempotencyKey, gateway: "Razorpay Test Gateway", currentIntervention: strategy.primaryAction.label }
     }));
 
     addAuditEvent({
@@ -292,10 +314,10 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       source: "EXECUTOR",
       event: "ACTION_EXECUTED",
       case: targetCase.id,
-      desc: `Dispatched Razorpay Test Mode ${decision.recommendedIntervention} (${targetCase.strategy}) with idempotency key ${idempotencyKey}.`,
+      desc: `Dispatched Razorpay Test Mode primary action: ${strategy.primaryAction.label} with idempotency key ${idempotencyKey}.`,
       status: "INFO",
       details: {
-        gateway: "Razorpay Test Mode Gateway (v1/payments/retry)",
+        gateway: "Razorpay Test Mode Gateway",
         idempotencyKey,
         amount: targetCase.amount,
         paymentMethod: targetCase.paymentMethod,
@@ -304,17 +326,17 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     });
 
     toast({
-      title: "Executing Recovery (Layer 4)",
-      description: `Sending idempotent action to Razorpay Test Mode for ${formatCurrency(targetCase.amount)}...`,
+      title: "Executing Primary Action (Layer 4)",
+      description: `Sending ${strategy.primaryAction.label} for ${formatCurrency(targetCase.amount)}...`,
       type: "info",
-      duration: 2000,
+      duration: 1800,
     });
 
     const executionRequest: ExecutionRequest = {
       caseId: targetCase.id,
       amount: targetCase.amount,
       paymentMethod: targetCase.paymentMethod,
-      intervention: decision.recommendedIntervention,
+      intervention: strategy.primaryAction.label,
       strategy: targetCase.strategy,
       idempotencyKey,
       isTestMode: true,
@@ -322,7 +344,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     const executionResult = await defaultRecoveryExecutor.execute(executionRequest);
 
-    // --- STEP 3: LAYER 5 GATEWAY TELEMETRY VERIFICATION (VERIFYING) ---
+    // --- STEP 3: LAYER 5 VERIFICATION OF PRIMARY ACTION ---
     setExecutionProgressMap((prev) => ({
       ...prev,
       [caseId]: { 
@@ -333,12 +355,238 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       }
     }));
 
+    // Check special multi-step fallback scenarios
+    if (effectiveScenario === "fallback_success") {
+      // Primary failed -> Trigger Fallback Chain
+      addAuditEvent({
+        layer: "LAYER 4",
+        source: "EXECUTOR",
+        event: "ACTION_FAILED",
+        case: targetCase.id,
+        desc: `Primary retry timed out. Triggering autonomous fallback sequence.`,
+        status: "FAILED",
+        details: {
+          reason: "Primary gateway retry unacknowledged.",
+          nextAction: "Select Fallback Intervention & Recheck Policy",
+        },
+      });
+
+      const fallbackStep = strategy.fallbackActions[0] || {
+        label: "WhatsApp 1-Click Payment Link",
+        channel: "whatsapp_link",
+      };
+
+      addAuditEvent({
+        layer: "LAYER 2",
+        source: "AGENT",
+        event: "FALLBACK_SELECTED",
+        case: targetCase.id,
+        desc: `Selected Fallback Step 2: ${fallbackStep.label}. Initiating secondary policy evaluation.`,
+        status: "INFO",
+        details: {
+          isFallback: true,
+          strategyStep: "FALLBACK_1",
+          nextAction: "Recheck Customer Contact Limit & Policy",
+        },
+      });
+
+      // POLICY RECHECK
+      addAuditEvent({
+        layer: "LAYER 3",
+        source: "POLICY_ENGINE",
+        event: "POLICY_RECHECKED",
+        case: targetCase.id,
+        desc: `Policy recheck: Customer contact frequency (1/2 in 24h) and link amount within limits. Authorized.`,
+        status: "SUCCESS",
+        details: {
+          isFallback: true,
+          policyRule: "CUSTOMER_CONTACT_LIMIT",
+          threshold: "Max 2 contacts in 24h",
+          actualValue: "1 contact recorded",
+          nextAction: `Dispatch ${fallbackStep.label}`,
+        },
+      });
+
+      const fallbackIdempotencyKey = `rz_rec_fb_${targetCase.id}_${Date.now()}`;
+
+      addAuditEvent({
+        layer: "LAYER 4",
+        source: "EXECUTOR",
+        event: "ACTION_EXECUTED",
+        case: targetCase.id,
+        desc: `Dispatched ${fallbackStep.label} via Gupshup/Razorpay Link API with key ${fallbackIdempotencyKey}.`,
+        status: "INFO",
+        details: {
+          isFallback: true,
+          gateway: "Razorpay Test Links (v1/payment_links)",
+          idempotencyKey: fallbackIdempotencyKey,
+          amount: targetCase.amount,
+        },
+      });
+
+      await new Promise((res) => setTimeout(res, 600));
+
+      const fallbackTxnId = `txn_rz_fb_${Date.now()}`;
+
+      addAuditEvent({
+        layer: "LAYER 4",
+        source: "EXECUTOR",
+        event: "ACTION_SUCCEEDED",
+        case: targetCase.id,
+        desc: `Customer completed payment via WhatsApp 1-Click Link. Captured ${formatCurrency(targetCase.amount)}. Ref: ${fallbackTxnId}`,
+        status: "SUCCESS",
+        details: {
+          isFallback: true,
+          transactionId: fallbackTxnId,
+          amount: targetCase.amount,
+        },
+      });
+
+      addAuditEvent({
+        layer: "LAYER 5",
+        source: "VERIFICATION",
+        event: "RECOVERY_VERIFIED",
+        case: targetCase.id,
+        desc: `Fallback recovery verified by webhook telemetry. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
+        status: "SUCCESS",
+        details: {
+          isFallback: true,
+          amount: targetCase.amount,
+          transactionId: fallbackTxnId,
+        },
+      });
+
+      addAuditEvent({
+        layer: "LAYER 5",
+        source: "VERIFICATION",
+        event: "CASE_RESOLVED",
+        case: targetCase.id,
+        desc: `Case resolved successfully via Fallback Strategy (${fallbackStep.label}).`,
+        status: "SUCCESS",
+      });
+
+      setCases((prev) =>
+        prev.map((c) =>
+          c.id === caseId
+            ? {
+                ...c,
+                status: "recovered",
+                retryCount: c.retryCount + 2,
+                contactCount24h: c.contactCount24h + 1,
+                resolutionDetails: {
+                  recoveredAmount: c.amount,
+                  channel: fallbackStep.label,
+                  timestamp: new Date().toISOString(),
+                  transactionId: fallbackTxnId,
+                },
+              }
+            : c
+        )
+      );
+
+      setExecutionProgressMap((prev) => ({
+        ...prev,
+        [caseId]: { 
+          caseId, 
+          step: "success", 
+          idempotencyKey: fallbackIdempotencyKey, 
+          transactionId: fallbackTxnId,
+          currentIntervention: fallbackStep.label,
+          isFallback: true,
+        }
+      }));
+
+      toast({
+        title: "Fallback Recovery Succeeded! 🎉",
+        description: `Primary retry failed, but fallback WhatsApp link successfully recovered ${formatCurrency(targetCase.amount)}.`,
+        type: "success",
+        duration: 5000,
+      });
+
+      return true;
+    }
+
+    if (effectiveScenario === "fallback_blocked") {
+      // Primary failed -> Fallback selected -> Blocked by Policy
+      addAuditEvent({
+        layer: "LAYER 4",
+        source: "EXECUTOR",
+        event: "ACTION_FAILED",
+        case: targetCase.id,
+        desc: `Primary retry declined by bank. Evaluating fallback intervention.`,
+        status: "FAILED",
+      });
+
+      addAuditEvent({
+        layer: "LAYER 2",
+        source: "AGENT",
+        event: "FALLBACK_SELECTED",
+        case: targetCase.id,
+        desc: `Selected Fallback: WhatsApp Payment Link. Re-evaluating policy guardrails.`,
+        status: "INFO",
+      });
+
+      addAuditEvent({
+        layer: "LAYER 3",
+        source: "POLICY_ENGINE",
+        event: "FALLBACK_BLOCKED",
+        case: targetCase.id,
+        desc: `Fallback blocked: Customer contact limit exceeded (2/2 allowed contacts in 24h already reached).`,
+        status: "BLOCKED",
+        details: {
+          policyRule: "CUSTOMER_CONTACT_LIMIT",
+          threshold: "Max 2 contacts in 24h",
+          actualValue: "2 contacts recorded",
+          reason: "Customer spam prevention policy engaged.",
+          nextAction: "Escalate to Human Queue",
+        },
+      });
+
+      addAuditEvent({
+        layer: "LAYER 5",
+        source: "VERIFICATION",
+        event: "STOPPING_RULE_TRIGGERED",
+        case: targetCase.id,
+        desc: `Stopping Rule engaged: CONTACT_LIMIT_REACHED. All further automated communications prohibited.`,
+        status: "BLOCKED",
+      });
+
+      addAuditEvent({
+        layer: "LAYER 5",
+        source: "VERIFICATION",
+        event: "CASE_ESCALATED",
+        case: targetCase.id,
+        desc: `Case transferred to human desk. Zero additional automated messages sent.`,
+        status: "BLOCKED",
+      });
+
+      setCases((prev) =>
+        prev.map((c) =>
+          c.id === caseId
+            ? { ...c, status: "escalated", lastError: "Fallback blocked: Contact limit (2/2) reached." }
+            : c
+        )
+      );
+
+      setExecutionProgressMap((prev) => ({
+        ...prev,
+        [caseId]: { caseId, step: "blocked", idempotencyKey }
+      }));
+
+      toast({
+        title: "Fallback Blocked by Guardrail",
+        description: "Customer contact limit reached (2/2). Prevented customer spam. Escalated.",
+        type: "warning",
+        duration: 5000,
+      });
+
+      return false;
+    }
+
     const verificationOutcome = await defaultVerificationService.verify(
       executionResult, 
       effectiveScenario
     );
-
-    // --- STEP 4: RESOLUTION / FAILURE HANDLING ---
 
     // SCENARIO C: VERIFICATION TIMEOUT
     if (verificationOutcome.status === "TIMEOUT") {
@@ -352,7 +600,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         source: "EXECUTOR",
         event: "VERIFICATION_TIMEOUT",
         case: targetCase.id,
-        desc: "Gateway verification response timed out after 30s. Bounded safety: NO automatic duplicate retry.",
+        desc: "Gateway verification response timed out after 30s. Bounded safety: NO automatic duplicate retry or fallback dispatched.",
         status: "TIMEOUT",
         details: {
           gateway: "Razorpay Test Webhook / Polling",
@@ -456,7 +704,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // SCENARIO A: SUCCESSFUL RECOVERY & REVENUE SETTLEMENT
+    // SCENARIO A: SUCCESSFUL PRIMARY RECOVERY & REVENUE SETTLEMENT
     const txnId = verificationOutcome.transactionId || `txn_rz_${Date.now()}`;
 
     setExecutionProgressMap((prev) => ({
@@ -466,7 +714,8 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         step: "success", 
         idempotencyKey, 
         transactionId: txnId,
-        latency: `${verificationOutcome.telemetryLatencyMs}ms`
+        latency: `${verificationOutcome.telemetryLatencyMs}ms`,
+        currentIntervention: strategy.primaryAction.label
       }
     }));
 
@@ -482,6 +731,19 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         transactionId: txnId,
         idempotencyKey,
         amount: targetCase.amount,
+      },
+    });
+
+    addAuditEvent({
+      layer: "LAYER 5",
+      source: "VERIFICATION",
+      event: "RECOVERY_VERIFIED",
+      case: targetCase.id,
+      desc: `Primary recovery verified by webhook telemetry. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
+      status: "SUCCESS",
+      details: {
+        amount: targetCase.amount,
+        transactionId: txnId,
       },
     });
 
@@ -510,7 +772,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
               retryCount: c.retryCount + 1,
               resolutionDetails: {
                 recoveredAmount: c.amount,
-                channel: decision.recommendedIntervention,
+                channel: strategy.primaryAction.label,
                 timestamp: new Date().toISOString(),
                 transactionId: txnId,
               },
@@ -521,7 +783,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     toast({
       title: "Money Recovered! 🎉",
-      description: `Successfully captured ${formatCurrency(targetCase.amount)} via ${decision.recommendedIntervention}. Dashboard updated.`,
+      description: `Successfully captured ${formatCurrency(targetCase.amount)} via ${strategy.primaryAction.label}. Dashboard updated.`,
       type: "success",
       duration: 4000,
     });
@@ -620,6 +882,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         metrics,
         getCaseById,
         getCaseDecision,
+        getCaseStrategy,
         getCasePolicy,
         getCaseExecutionProgress,
         getCaseExecutionState,

@@ -46,6 +46,76 @@ export type RecommendedInterventionType =
   | "Human Escalation" 
   | "No Action";
 
+export type InterventionType = 
+  | "RETRY_PAYMENT" 
+  | "SEND_PAYMENT_LINK" 
+  | "SEND_CUSTOMER_REMINDER" 
+  | "RETRY_SUBSCRIPTION" 
+  | "SEND_RECEIVABLES_REMINDER" 
+  | "HUMAN_ESCALATION" 
+  | "NO_ACTION";
+
+export type StrategyUrgency = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+export type StrategyStatus = 
+  | "READY" 
+  | "EXECUTING" 
+  | "WAITING" 
+  | "FALLBACK_AVAILABLE" 
+  | "ESCALATED" 
+  | "STOPPED" 
+  | "RECOVERED";
+
+export type StoppingRuleType = 
+  | "MAX_RETRIES_REACHED" 
+  | "CONTACT_LIMIT_REACHED" 
+  | "PROBABILITY_BELOW_THRESHOLD" 
+  | "EXPECTED_VALUE_BELOW_MINIMUM" 
+  | "COOLING_PERIOD_ACTIVE" 
+  | "POLICY_VIOLATION" 
+  | "ALREADY_RECOVERED" 
+  | "VERIFICATION_UNRESOLVED" 
+  | "RISK_RADAR_FLAG";
+
+export interface StrategyStep {
+  stepIndex: number;
+  type: "PRIMARY" | "FALLBACK" | "ESCALATION";
+  intervention: InterventionType;
+  label: string;
+  channel: RecoveryChannel;
+  status: "READY" | "APPROVED" | "BLOCKED" | "EXECUTING" | "EXECUTED" | "SUCCEEDED" | "FAILED" | "SKIPPED" | "PENDING";
+  expectedRecovery: number; // in paise
+  recoveryProbability: number; // 0.0 to 1.0
+  policyCheckRequired: boolean;
+  policySummary?: string;
+  rationale: string;
+}
+
+export interface RecoveryStrategy {
+  caseId: string;
+  status: StrategyStatus;
+  priority: "Critical" | "High" | "Medium" | "Low";
+  urgency: StrategyUrgency;
+  urgencyReason: string;
+  currentStepIndex: number;
+  steps: StrategyStep[];
+  primaryAction: StrategyStep;
+  fallbackActions: StrategyStep[];
+  escalationAction: StrategyStep;
+  budget: {
+    maxInterventions: number;
+    currentInterventions: number;
+  };
+  stoppingRules: {
+    rule: StoppingRuleType;
+    description: string;
+    triggered: boolean;
+  }[];
+  explanation: string;
+  fallbackExplanation: string;
+  noActionReason?: string;
+}
+
 export interface Customer {
   id: string;
   name: string;
@@ -148,6 +218,8 @@ export interface ExecutionProgress {
   gateway?: string;
   transactionId?: string;
   latency?: string;
+  currentIntervention?: string;
+  isFallback?: boolean;
 }
 
 export interface AlternativeAction {
@@ -230,18 +302,25 @@ export type AuditEventType =
   | "CASE_CREATED" 
   | "RISK_SCORED" 
   | "AGENT_DECISION" 
+  | "STRATEGY_CREATED"
+  | "INTERVENTION_SELECTED"
   | "POLICY_CHECKED" 
   | "POLICY_APPROVED" 
   | "POLICY_BLOCKED" 
+  | "POLICY_RECHECKED"
   | "ACTION_CREATED"
   | "ACTION_EXECUTED" 
   | "VERIFICATION_STARTED"
   | "ACTION_SUCCEEDED" 
   | "ACTION_FAILED" 
+  | "FALLBACK_SELECTED"
+  | "FALLBACK_BLOCKED"
+  | "STOPPING_RULE_TRIGGERED"
   | "VERIFICATION_TIMEOUT" 
   | "CASE_RESOLVED" 
   | "CASE_ESCALATED" 
-  | "CASE_STOPPED";
+  | "CASE_STOPPED"
+  | "RECOVERY_VERIFIED";
 
 export interface AuditEventDetails {
   policyRule?: string;
@@ -255,6 +334,8 @@ export interface AuditEventDetails {
   paymentMethod?: string;
   reason?: string;
   nextAction?: string;
+  strategyStep?: string;
+  isFallback?: boolean;
 }
 
 export interface AuditEvent {

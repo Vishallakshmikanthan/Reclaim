@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
 import { ExecutionTimeline } from "@/components/ui/ExecutionTimeline";
+import { RecoveryStrategyTimeline } from "@/components/ui/RecoveryStrategyTimeline";
 import { AuditEventDrawer } from "@/components/AuditEventDrawer";
 import { useReclaim } from "@/lib/context/ReclaimContext";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
@@ -58,6 +59,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     cases, 
     getCaseById, 
     getCaseDecision, 
+    getCaseStrategy,
     getCasePolicy, 
     getCaseExecutionProgress,
     getCaseExecutionState, 
@@ -79,8 +81,9 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
   const executionState = getCaseExecutionState(currentCase.id);
   const isRecovered = currentCase.status === "recovered";
 
-  // Dynamic AI synthesis, risk signals, & deterministic policy check
+  // Dynamic AI synthesis, risk signals, deterministic policy check, and intelligent recovery strategy
   const aiDecision = useMemo(() => getCaseDecision(currentCase), [currentCase, getCaseDecision]);
+  const strategy = useMemo(() => getCaseStrategy(currentCase), [currentCase, getCaseStrategy]);
   const policyResult = useMemo(() => getCasePolicy(currentCase), [currentCase, getCasePolicy]);
   const signals = useMemo(() => extractRiskSignals(currentCase), [currentCase]);
 
@@ -534,7 +537,13 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
             </div>
           </div>
 
-          {/* Decision Timeline */}
+          {/* Intelligent Recovery Strategy & Multi-Step Fallback Chain */}
+          <RecoveryStrategyTimeline 
+            strategy={strategy} 
+            currentExecutionStep={executionState} 
+          />
+
+          {/* Decision Processing Timeline */}
           <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-border-subtle">
               <div>
@@ -808,6 +817,44 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Intelligent Orchestration Demo Scenarios */}
+            <div className="mt-5 pt-4 border-t border-slate-100 dark:border-border-subtle space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-text-muted">
+                <span className="font-semibold uppercase tracking-wider text-[10px]">Test Orchestration Scenarios:</span>
+                <span className="font-mono text-[9px]">Multi-Step Flow</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                <button
+                  onClick={() => executeRecovery(currentCase.id, { forceScenario: "success" })}
+                  disabled={executionState !== "idle" && executionState !== "blocked" && executionState !== "timeout" && executionState !== "failed"}
+                  className="px-2 py-1.5 bg-slate-50 dark:bg-surface-elevated hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 text-slate-700 dark:text-text-secondary rounded border border-slate-200 dark:border-border-subtle text-left transition-colors font-medium disabled:opacity-50"
+                >
+                  1. Primary Success
+                </button>
+                <button
+                  onClick={() => executeRecovery(currentCase.id, { forceScenario: "fallback_success" })}
+                  disabled={executionState !== "idle" && executionState !== "blocked" && executionState !== "timeout" && executionState !== "failed"}
+                  className="px-2 py-1.5 bg-slate-50 dark:bg-surface-elevated hover:bg-sky-50 dark:hover:bg-sky-950/40 hover:text-sky-700 dark:hover:text-sky-400 text-slate-700 dark:text-text-secondary rounded border border-slate-200 dark:border-border-subtle text-left transition-colors font-medium disabled:opacity-50"
+                >
+                  2. Fallback Recovers
+                </button>
+                <button
+                  onClick={() => executeRecovery(currentCase.id, { forceScenario: "fallback_blocked" })}
+                  disabled={executionState !== "idle" && executionState !== "blocked" && executionState !== "timeout" && executionState !== "failed"}
+                  className="px-2 py-1.5 bg-slate-50 dark:bg-surface-elevated hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-700 dark:hover:text-amber-400 text-slate-700 dark:text-text-secondary rounded border border-slate-200 dark:border-border-subtle text-left transition-colors font-medium disabled:opacity-50"
+                >
+                  3. Fallback Blocked
+                </button>
+                <button
+                  onClick={() => executeRecovery(currentCase.id, { forceScenario: "timeout" })}
+                  disabled={executionState !== "idle" && executionState !== "blocked" && executionState !== "timeout" && executionState !== "failed"}
+                  className="px-2 py-1.5 bg-slate-50 dark:bg-surface-elevated hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-700 dark:hover:text-amber-400 text-slate-700 dark:text-text-secondary rounded border border-slate-200 dark:border-border-subtle text-left transition-colors font-medium disabled:opacity-50"
+                >
+                  4. Timeout Safety
+                </button>
+              </div>
             </div>
 
           </div>
