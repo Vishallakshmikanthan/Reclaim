@@ -71,7 +71,7 @@ def campaign(campaign_id:str,svc:Services=Depends(get_services)):
     if not c:raise CaseNotFoundError("Campaign not found.")
     return c
 def transition(id,status,message,svc):
-    c=campaign(id,svc);c.status=status;svc.repo.save_campaign(c);svc.audit("CAMPAIGN_"+status.value,campaign_id=id);return CampaignExecutionResponse(campaign_id=id,status=status,message=message)
+    c=campaign(id,svc);c.status=status;svc.repo.save_campaign(c);st_val=status.value if hasattr(status,"value") else str(status);svc.audit("CAMPAIGN_"+st_val,campaign_id=id);return CampaignExecutionResponse(campaign_id=id,status=status,message=message)
 @app.post("/api/v1/campaigns/{campaign_id}/start",response_model=CampaignExecutionResponse)
 def start(campaign_id:str,svc:Services=Depends(get_services)):return transition(campaign_id,CampaignStatus.running,"Campaign started in simulation mode.",svc)
 @app.post("/api/v1/campaigns/{campaign_id}/pause",response_model=CampaignExecutionResponse)

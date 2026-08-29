@@ -22,35 +22,35 @@ class Case(BaseModel):
     amount: int = Field(gt=0, description="Integer minor units (paise)"); payment_method: PaymentMethod; failure_type: FailureType; failure_reason: str; prob: float = Field(ge=0, le=1); expected: int = Field(ge=0); status: CaseStatus = CaseStatus.at_risk; age: str = "0 min"; created_at: datetime = Field(default_factory=now); updated_at: datetime | None = None; last_attempt_at: datetime | None = None; retry_count: int = Field(default=0, ge=0, le=10); max_retries: int = Field(default=3, ge=0, le=10); contact_count_24h: int = Field(default=0, ge=0); max_contacts_24h: int = Field(default=2, ge=1); risk_score: float = Field(default=0, ge=0, le=1); strategy: str = ""; bank: str | None = None; demo_scenario: str = "STANDARD"; recovered_amount: int = Field(default=0, ge=0)
 class CaseCreateRequest(Case): pass
 class CaseUpdateRequest(BaseModel): status: CaseStatus | None = None
-class CaseResponse(Case): pass
-class CaseListResponse(BaseModel): items: list[CaseResponse]; page: int; page_size: int; total: int
+CaseResponse = Case
+class CaseListResponse(BaseModel): items: list[Case]; page: int; page_size: int; total: int
 class PolicyConfiguration(BaseModel): max_retries: int = Field(default=3, ge=0, le=10); min_recovery_probability: float = Field(default=.2, ge=0, le=1); max_autonomous_amount: int = Field(default=1_000_000, gt=0); max_contacts_24h: int = Field(default=2, ge=1, le=10); max_risk_score: float = Field(default=.6, ge=0, le=1)
 class PolicyVersion(BaseModel): version: str; created_at: datetime = Field(default_factory=now); created_by: str; configuration: PolicyConfiguration; active: bool
 class Policy(BaseModel): current: PolicyVersion
-class PolicyResponse(PolicyVersion): pass
-class PolicyVersionResponse(PolicyVersion): pass
+PolicyResponse = PolicyVersion
+PolicyVersionResponse = PolicyVersion
 class PolicyUpdateRequest(BaseModel): configuration: PolicyConfiguration; created_by: str = Field(default="system", min_length=1)
 class PolicyValidationRequest(BaseModel): case_id: str
 class PolicyValidationResponse(BaseModel): allowed: bool; blocked_rules: list[str]; summary: str; policy_version: str
 class RecoveryDecision(BaseModel): case_id: str; strategy: Strategy; recovery_probability: float; expected_recovery: int; priority: str; explanation: str; policy_result: PolicyValidationResponse; next_step: str
-class RecoveryDecisionResponse(RecoveryDecision): pass
+RecoveryDecisionResponse = RecoveryDecision
 class RecoveryActionRequest(BaseModel): strategy: Strategy | None = None; scenario: str | None = None
 class RecoveryAction(BaseModel): action_id: str = Field(default_factory=lambda: ident("action")); case_id: str; strategy: Strategy; status: ActionStatus; policy_version: str; idempotency_key: str; verification_status: str; created_at: datetime = Field(default_factory=now); transaction_id: str | None = None
-class RecoveryActionResponse(RecoveryAction): pass
+RecoveryActionResponse = RecoveryAction
 class RecoveryStatusResponse(BaseModel): case_id: str; status: CaseStatus; recovered_amount: int; verification_status: str | None = None
 class Campaign(BaseModel): id: str = Field(default_factory=lambda: ident("campaign")); name: str = Field(min_length=1); type: str; description: str = ""; status: CampaignStatus = CampaignStatus.draft; min_probability: float = Field(default=.2, ge=0, le=1); case_ids: list[str] = Field(default_factory=list); created_at: datetime = Field(default_factory=now); updated_at: datetime = Field(default_factory=now)
 class CampaignCreateRequest(BaseModel): name: str; type: str; description: str = ""; min_probability: float = Field(default=.2, ge=0, le=1); case_ids: list[str] = Field(default_factory=list)
 class CampaignUpdateRequest(BaseModel): name: str | None = None; description: str | None = None; min_probability: float | None = Field(default=None, ge=0, le=1)
-class CampaignResponse(Campaign): pass
+CampaignResponse = Campaign
 class CampaignExecutionResponse(BaseModel): campaign_id: str; status: CampaignStatus; message: str
 class CampaignStatusResponse(BaseModel): campaign_id: str; status: CampaignStatus
 class Communication(BaseModel): id: str = Field(default_factory=lambda: ident("comm")); case_id: str; channel: CommunicationChannel; content: str = Field(min_length=1); status: str = "SENT_SIMULATED"; campaign_id: str | None = None; created_at: datetime = Field(default_factory=now)
 class CommunicationRequest(BaseModel): case_id: str; channel: CommunicationChannel; content: str = Field(min_length=1); campaign_id: str | None = None
-class CommunicationResponse(Communication): pass
+CommunicationResponse = Communication
 class CommunicationStatusResponse(BaseModel): communication_id: str; status: str
 class AuditEvent(BaseModel): event_id: str = Field(default_factory=lambda: ident("audit")); event_type: str; case_id: str | None = None; campaign_id: str | None = None; policy_version: str | None = None; timestamp: datetime = Field(default_factory=now); actor: str = "system"; metadata: dict[str, Any] = Field(default_factory=dict)
-class AuditEventResponse(AuditEvent): pass
-class AuditEventListResponse(BaseModel): items: list[AuditEventResponse]; total: int
+AuditEventResponse = AuditEvent
+class AuditEventListResponse(BaseModel): items: list[AuditEvent]; total: int
 class EvaluationCase(BaseModel): id: str; amount: int = Field(gt=0); failure_type: FailureType; recoverable: bool
 class EvaluationMetrics(BaseModel): total_cases: int; recovered_cases: int; recovered_amount: int; policy_blocks: int
 class EvaluationRun(BaseModel): run_id: str = Field(default_factory=lambda: ident("eval")); status: str = "COMPLETED"; created_at: datetime = Field(default_factory=now); metrics: EvaluationMetrics
