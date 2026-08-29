@@ -114,6 +114,7 @@ interface ReclaimContextType {
 const ReclaimContext = createContext<ReclaimContextType | undefined>(undefined);
 
 import { BrowserStorage, STORAGE_KEYS } from "../storage/browserStorage";
+import { services } from "../services/serviceFactory";
 
 export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
@@ -152,6 +153,59 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [executionProgressMap, setExecutionProgressMap] = useState<Record<string, ExecutionProgress>>({});
+
+  // API Initialization
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_USE_MOCKS !== 'true') {
+      const loadAll = async () => {
+        try {
+          const [
+            apiCases, 
+            apiAudit, 
+            apiCampaigns, 
+            apiComms, 
+            apiPolicy, 
+            apiPolicyHistory
+          ] = await Promise.all([
+            services.caseRepo.getAllCases(),
+            services.auditRepo.getAllEvents(),
+            services.campaignRepo.getAllCampaigns(),
+            services.communicationRepo.getAllCommunications(),
+            services.policyRepo.getActivePolicy(),
+            services.policyRepo.getPolicyHistory()
+          ]);
+          setCases(apiCases);
+          setAuditEvents(apiAudit);
+          setCampaigns(apiCampaigns);
+          setCommunications(apiComms);
+          setActivePolicy(apiPolicy);
+          setPolicyHistory(apiPolicyHistory);
+          const healthRes = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"}/api/v1/system/health`).catch(() => null);
+          if (healthRes && healthRes.ok) {
+            const healthData = await healthRes.json();
+            // Map backend health to frontend serviceHealth format if needed
+            // For now, we'll just set it if format matches, or mock mapping.
+            const mappedHealth = Object.keys(INITIAL_SERVICE_HEALTH).reduce((acc, key) => {
+              const statusStr = healthData.services[key.toLowerCase()] || "OPERATIONAL";
+              acc[key] = {
+                service: key,
+                status: statusStr === "OPERATIONAL" ? "OPERATIONAL" : "DEGRADED",
+                latency: Math.floor(Math.random() * 50) + 10,
+                lastChecked: new Date().toISOString()
+              };
+              return acc;
+            }, {} as Record<string, any>);
+            setServiceHealth(mappedHealth);
+          }
+
+        } catch (e) {
+          console.error("Failed to load data from backend API:", e);
+          toast({ title: "Backend Unavailable", description: "Failed to connect to the Reclaim API.", type: "error" });
+        }
+      };
+      loadAll();
+    }
+  }, []);
 
   // Synchronize with Centralized Storage
   useEffect(() => {
@@ -439,565 +493,61 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
    * Multi-Step Intelligent Recovery Strategy Orchestrator Pipeline with Centralized Safety Controller & Dynamic Policy
    */
   const executeRecovery = useCallback(async (caseId: string, options?: ExecuteOptions): Promise<boolean> => {
-    // Check RBAC Permissions
-    if (merchantProfile.currentRole === "VIEWER") {
-      toast({
-        title: "Permission Denied",
-        description: "Viewer role has read-only access. Cannot execute financial recovery.",
-        type: "error",
-      });
-      return false;
-    }
-
-    const targetCase = cases.find((c) => c.id === caseId);
-    if (!targetCase) {
-      toast({ title: "Case Not Found", description: `Case ${caseId} does not exist.`, type: "error" });
-      return false;
-    }
-
-    const activeExecutingCaseIds = Object.keys(executionProgressMap).filter(
-      (k) => ["authorizing", "executing", "verifying"].includes(executionProgressMap[k]?.step)
-    );
-
-    // --- STEP 0: CENTRALIZED SAFETY CONTROLLER PRE-CHECK ---
-    const safetyCheck = evaluateSafetyBeforeExecution(targetCase, serviceHealth, activeExecutingCaseIds);
-    if (!safetyCheck.allowed) {
-      addAuditEvent({
-        layer: "LAYER 3",
-        source: "POLICY_ENGINE",
-        event: "ACTION_BLOCKED_FOR_SAFETY",
-        case: targetCase.id,
-        desc: safetyCheck.reason,
-        status: "BLOCKED",
-        details: {
-          failureType: safetyCheck.failureType,
-          requiredAction: safetyCheck.requiredAction,
-          severity: safetyCheck.severity,
-        }
-      });
-
-      toast({
-        title: "Action Blocked by Safety Guardrail",
-        description: safetyCheck.userFacingMessage,
-        type: safetyCheck.severity === "CRITICAL" ? "error" : "warning",
-        duration: 5000,
-      });
-
-      return false;
-    }
-
-    const decision = synthesizeDecision(targetCase);
-    const strategy = buildRecoveryStrategy(targetCase);
-    const policy = evaluatePolicy(targetCase, activePolicy);
-    const effectiveScenario = options?.forceScenario || targetCase.demoScenario || "A_SUCCESS";
-    const idempotencyKey = `rz_rec_${targetCase.id}_${Date.now()}`;
-
-    // --- STEP 1: LAYER 3 POLICY CHECK (PRIMARY ACTION) ---
     setExecutionProgressMap((prev) => ({
       ...prev,
-      [caseId]: { caseId, step: "authorizing", idempotencyKey, currentIntervention: strategy.primaryAction.label }
+      [caseId]: { caseId, step: "authorizing", idempotencyKey: "temp" }
     }));
 
-    addAuditEvent({
-      layer: "LAYER 2",
-      source: "AGENT",
-      event: "STRATEGY_CREATED",
-      case: targetCase.id,
-      desc: `Orchestrated ${strategy.steps.length}-step recovery chain under Policy ${activePolicy.version}: ${strategy.primaryAction.label} → Fallback: ${strategy.fallbackActions[0]?.label || 'Human Escalation'}.`,
-      status: "INFO",
-      details: {
-        strategyStep: "PRIMARY",
-        amount: targetCase.amount,
-        nextAction: `Evaluate against Layer 3 Policy Guardrails (${activePolicy.version})`,
-      },
-    });
+    try {
+      const caseItem = cases.find(c => c.id === caseId);
+      if (!caseItem) throw new Error("Case not found");
 
-    addAuditEvent({
-      layer: "LAYER 3",
-      source: "POLICY_ENGINE",
-      event: "POLICY_CHECKED",
-      case: targetCase.id,
-      desc: `Evaluating active Policy ${activePolicy.version} for primary action: ${strategy.primaryAction.label}.`,
-      status: "INFO",
-      details: {
-        amount: targetCase.amount,
-        policyRule: activePolicy.version,
-        nextAction: "Policy approval or block",
-      },
-    });
-
-    await new Promise((res) => setTimeout(res, 500));
-
-    // Check if Primary is blocked by policy
-    if (!policy.allowed || effectiveScenario === "block" || effectiveScenario === "B_POLICY_BLOCK") {
       setExecutionProgressMap((prev) => ({
         ...prev,
-        [caseId]: { caseId, step: "blocked", idempotencyKey }
+        [caseId]: { caseId, step: "executing", idempotencyKey: "temp" }
       }));
 
-      const blockReason = policy.blockedRules[0] || `Policy ${activePolicy.version} guardrail engaged.`;
-
-      addAuditEvent({
-        layer: "LAYER 3",
-        source: "POLICY_ENGINE",
-        event: "POLICY_BLOCKED",
-        case: targetCase.id,
-        desc: `Action blocked under Policy ${activePolicy.version}: ${blockReason}`,
-        status: "BLOCKED",
-        details: {
-          policyRule: activePolicy.version,
-          threshold: `Max ${activePolicy.retryRules.maxRetries} retries`,
-          actualValue: `${targetCase.retryCount} retries recorded`,
-          reason: blockReason,
-          nextAction: "Escalate to Human Operations Desk",
-        },
-      });
-
-      addAuditEvent({
-        layer: "LAYER 5",
-        source: "VERIFICATION",
-        event: "CASE_ESCALATED",
-        case: targetCase.id,
-        desc: `Transferred to human operations desk due to policy block: ${blockReason}`,
-        status: "BLOCKED",
-        details: {
-          reason: blockReason,
-          nextAction: "Assigned to Human Queue",
-        },
-      });
-
-      setCases((prev) =>
-        prev.map((c) =>
-          c.id === caseId
-            ? { ...c, status: "escalated", lastError: `Policy blocked: ${blockReason}` }
-            : c
-        )
+      const idempotencyKey = `rz_rec_${caseId}_${Date.now()}`;
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"}/api/v1/cases/${caseId}/recovery/actions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify({ action_type: "RETRY_PAYMENT", amount: caseItem.amount, scheduled_for: new Date().toISOString() })
+        }
       );
 
-      toast({
-        title: "Action Blocked by Policy",
-        description: blockReason,
-        type: "error",
-        duration: 4500,
-      });
+      const data = await response.json();
 
-      return false;
-    }
+      setExecutionProgressMap((prev) => ({
+        ...prev,
+        [caseId]: { caseId, step: "verifying", idempotencyKey }
+      }));
 
-    addAuditEvent({
-      layer: "LAYER 3",
-      source: "POLICY_ENGINE",
-      event: "POLICY_APPROVED",
-      case: targetCase.id,
-      desc: `All deterministic rules satisfied under Policy ${activePolicy.version}. Action authorized for ${formatCurrency(targetCase.amount)}.`,
-      status: "SUCCESS",
-      details: {
-        policyRule: activePolicy.version,
-        threshold: "All Invariants Satisfied",
-        actualValue: "Approved",
-        nextAction: `Dispatch ${strategy.primaryAction.label} (Layer 4)`,
-      },
-    });
-
-    // --- STEP 2: LAYER 4 RAZORPAY TEST MODE PRIMARY EXECUTION ---
-    setExecutionProgressMap((prev) => ({
-      ...prev,
-      [caseId]: { caseId, step: "executing", idempotencyKey, gateway: "Razorpay Test Gateway", currentIntervention: strategy.primaryAction.label }
-    }));
-
-    addAuditEvent({
-      layer: "LAYER 4",
-      source: "EXECUTOR",
-      event: "ACTION_EXECUTED",
-      case: targetCase.id,
-      desc: `Dispatched Razorpay Test Mode primary action: ${strategy.primaryAction.label} with idempotency key ${idempotencyKey}.`,
-      status: "INFO",
-      details: {
-        gateway: "Razorpay Test Mode Gateway",
-        idempotencyKey,
-        amount: targetCase.amount,
-        paymentMethod: targetCase.paymentMethod,
-        customer: targetCase.customer,
-      },
-    });
-
-    toast({
-      title: "Executing Primary Action (Layer 4)",
-      description: `Sending ${strategy.primaryAction.label} for ${formatCurrency(targetCase.amount)}...`,
-      type: "info",
-      duration: 1800,
-    });
-
-    const executionRequest: ExecutionRequest = {
-      caseId: targetCase.id,
-      amount: targetCase.amount,
-      paymentMethod: targetCase.paymentMethod,
-      intervention: strategy.primaryAction.label,
-      strategy: targetCase.strategy,
-      idempotencyKey,
-      isTestMode: true,
-    };
-
-    const executionResult = await defaultRecoveryExecutor.execute(executionRequest);
-
-    // --- STEP 3: LAYER 5 VERIFICATION OF PRIMARY ACTION ---
-    setExecutionProgressMap((prev) => ({
-      ...prev,
-      [caseId]: { 
-        caseId, 
-        step: "verifying", 
-        idempotencyKey, 
-        gateway: executionResult.gateway 
+      if (!response.ok) {
+        if (data.error?.code === 'POLICY_BLOCKED' || data.error?.code === 'POLICY_VALIDATION_ERROR') {
+          setExecutionProgressMap((prev) => ({ ...prev, [caseId]: { caseId, step: "blocked", idempotencyKey } }));
+          // Refresh cases & audit
+          services.caseRepo.getAllCases().then(setCases);
+          services.auditRepo.getAllEvents().then(setAuditEvents);
+          return false;
+        }
+        setExecutionProgressMap((prev) => ({ ...prev, [caseId]: { caseId, step: "failed", idempotencyKey } }));
+        return false;
       }
-    }));
 
-    // Multi-Step Fallback Scenarios
-    if (effectiveScenario === "fallback_success") {
-      addAuditEvent({
-        layer: "LAYER 4",
-        source: "EXECUTOR",
-        event: "ACTION_FAILED",
-        case: targetCase.id,
-        desc: `Primary retry timed out. Triggering autonomous fallback sequence.`,
-        status: "FAILED",
-      });
-
-      const fallbackStep = strategy.fallbackActions[0] || {
-        label: "WhatsApp 1-Click Payment Link",
-        channel: "whatsapp_link",
-      };
-
-      addAuditEvent({
-        layer: "LAYER 2",
-        source: "AGENT",
-        event: "FALLBACK_SELECTED",
-        case: targetCase.id,
-        desc: `Selected Fallback Step 2: ${fallbackStep.label}. Initiating secondary policy evaluation.`,
-        status: "INFO",
-      });
-
-      addAuditEvent({
-        layer: "LAYER 3",
-        source: "POLICY_ENGINE",
-        event: "POLICY_RECHECKED",
-        case: targetCase.id,
-        desc: `Policy recheck: Customer contact frequency (1/2 in 24h) and link amount within limits. Authorized.`,
-        status: "SUCCESS",
-      });
-
-      const fallbackIdempotencyKey = `rz_rec_fb_${targetCase.id}_${Date.now()}`;
-
-      addAuditEvent({
-        layer: "LAYER 4",
-        source: "EXECUTOR",
-        event: "ACTION_EXECUTED",
-        case: targetCase.id,
-        desc: `Dispatched ${fallbackStep.label} via Gupshup/Razorpay Link API with key ${fallbackIdempotencyKey}.`,
-        status: "INFO",
-      });
-
-      await new Promise((res) => setTimeout(res, 600));
-
-      const fallbackTxnId = `txn_rz_fb_${Date.now()}`;
-
-      addAuditEvent({
-        layer: "LAYER 4",
-        source: "EXECUTOR",
-        event: "ACTION_SUCCEEDED",
-        case: targetCase.id,
-        desc: `Customer completed payment via WhatsApp 1-Click Link. Captured ${formatCurrency(targetCase.amount)}. Ref: ${fallbackTxnId}`,
-        status: "SUCCESS",
-      });
-
-      addAuditEvent({
-        layer: "LAYER 5",
-        source: "VERIFICATION",
-        event: "RECOVERY_VERIFIED",
-        case: targetCase.id,
-        desc: `Fallback recovery verified by webhook telemetry under Policy ${activePolicy.version}. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
-        status: "SUCCESS",
-      });
-
-      addAuditEvent({
-        layer: "LAYER 5",
-        source: "VERIFICATION",
-        event: "CASE_RESOLVED",
-        case: targetCase.id,
-        desc: `Case resolved successfully via Fallback Strategy (${fallbackStep.label}).`,
-        status: "SUCCESS",
-      });
-
-      setCases((prev) =>
-        prev.map((c) =>
-          c.id === caseId
-            ? {
-                ...c,
-                status: "recovered",
-                retryCount: c.retryCount + 2,
-                contactCount24h: c.contactCount24h + 1,
-                resolutionDetails: {
-                  recoveredAmount: c.amount,
-                  channel: fallbackStep.label,
-                  timestamp: new Date().toISOString(),
-                  transactionId: fallbackTxnId,
-                },
-              }
-            : c
-        )
-      );
-
-      setExecutionProgressMap((prev) => ({
-        ...prev,
-        [caseId]: { 
-          caseId, 
-          step: "success", 
-          idempotencyKey: fallbackIdempotencyKey, 
-          transactionId: fallbackTxnId,
-          currentIntervention: fallbackStep.label,
-          isFallback: true,
-        }
-      }));
-
-      toast({
-        title: "Fallback Recovery Succeeded! 🎉",
-        description: `Primary retry failed, but fallback WhatsApp link successfully recovered ${formatCurrency(targetCase.amount)}.`,
-        type: "success",
-        duration: 5000,
-      });
-
+      setExecutionProgressMap((prev) => ({ ...prev, [caseId]: { caseId, step: "success", idempotencyKey } }));
+      // Refresh cases & audit
+      services.caseRepo.getAllCases().then(setCases);
+      services.auditRepo.getAllEvents().then(setAuditEvents);
       return true;
-    }
 
-    if (effectiveScenario === "fallback_blocked") {
-      addAuditEvent({
-        layer: "LAYER 4",
-        source: "EXECUTOR",
-        event: "ACTION_FAILED",
-        case: targetCase.id,
-        desc: `Primary retry declined by bank. Evaluating fallback intervention.`,
-        status: "FAILED",
-      });
-
-      addAuditEvent({
-        layer: "LAYER 3",
-        source: "POLICY_ENGINE",
-        event: "FALLBACK_BLOCKED",
-        case: targetCase.id,
-        desc: `Fallback blocked: Customer contact limit exceeded (${activePolicy.communicationRules.maxContacts24h}/${activePolicy.communicationRules.maxContacts24h} reached).`,
-        status: "BLOCKED",
-      });
-
-      addAuditEvent({
-        layer: "LAYER 5",
-        source: "VERIFICATION",
-        event: "STOPPING_RULE_TRIGGERED",
-        case: targetCase.id,
-        desc: `Stopping Rule engaged: CONTACT_LIMIT_REACHED. All further automated communications prohibited.`,
-        status: "BLOCKED",
-      });
-
-      addAuditEvent({
-        layer: "LAYER 5",
-        source: "VERIFICATION",
-        event: "CASE_ESCALATED",
-        case: targetCase.id,
-        desc: `Case transferred to human desk. Zero additional automated messages sent.`,
-        status: "BLOCKED",
-      });
-
-      setCases((prev) =>
-        prev.map((c) =>
-          c.id === caseId
-            ? { ...c, status: "escalated", lastError: "Fallback blocked: Contact limit reached." }
-            : c
-        )
-      );
-
-      setExecutionProgressMap((prev) => ({
-        ...prev,
-        [caseId]: { caseId, step: "blocked", idempotencyKey }
-      }));
-
-      toast({
-        title: "Fallback Blocked by Guardrail",
-        description: `Customer contact limit reached (${activePolicy.communicationRules.maxContacts24h}/${activePolicy.communicationRules.maxContacts24h}). Prevented customer spam. Escalated.`,
-        type: "warning",
-        duration: 5000,
-      });
-
+    } catch (e) {
+      console.error(e);
+      setExecutionProgressMap((prev) => ({ ...prev, [caseId]: { caseId, step: "failed", idempotencyKey: "temp" } }));
       return false;
     }
-
-    const verificationOutcome = await defaultVerificationService.verify(
-      executionResult, 
-      effectiveScenario
-    );
-
-    // SCENARIO C: VERIFICATION TIMEOUT
-    if (verificationOutcome.status === "TIMEOUT") {
-      setExecutionProgressMap((prev) => ({
-        ...prev,
-        [caseId]: { caseId, step: "timeout", idempotencyKey }
-      }));
-
-      addAuditEvent({
-        layer: "LAYER 4",
-        source: "EXECUTOR",
-        event: "VERIFICATION_TIMEOUT",
-        case: targetCase.id,
-        desc: "Gateway verification response timed out after 30s. Bounded safety: NO automatic duplicate retry or fallback dispatched.",
-        status: "TIMEOUT",
-      });
-
-      addAuditEvent({
-        layer: "LAYER 5",
-        source: "VERIFICATION",
-        event: "CASE_ESCALATED",
-        case: targetCase.id,
-        desc: "Case escalated for manual reconciliation. Settlement status remains unconfirmed.",
-        status: "TIMEOUT",
-      });
-
-      setCases((prev) =>
-        prev.map((c) =>
-          c.id === caseId
-            ? {
-                ...c,
-                status: "escalated",
-                retryCount: c.retryCount + 1,
-                lastError: "Verification timed out. Telemetry unconfirmed.",
-              }
-            : c
-        )
-      );
-
-      toast({
-        title: "Verification Timed Out ⚠️",
-        description: "Gateway response ambiguous. Stopped duplicate retries to prevent double debits. Escalated.",
-        type: "warning",
-        duration: 5000,
-      });
-
-      return false;
-    }
-
-    // SCENARIO D: RECOVERY FAILURE
-    if (verificationOutcome.status === "FAILED" || effectiveScenario === "failure") {
-      setExecutionProgressMap((prev) => ({
-        ...prev,
-        [caseId]: { caseId, step: "failed", idempotencyKey }
-      }));
-
-      addAuditEvent({
-        layer: "LAYER 4",
-        source: "EXECUTOR",
-        event: "ACTION_FAILED",
-        case: targetCase.id,
-        desc: `Razorpay retry declined by issuing bank: ${verificationOutcome.message}`,
-        status: "FAILED",
-      });
-
-      addAuditEvent({
-        layer: "LAYER 5",
-        source: "VERIFICATION",
-        event: "CASE_ESCALATED",
-        case: targetCase.id,
-        desc: "Automated retry path exhausted. Case escalated to customer success desk.",
-        status: "FAILED",
-      });
-
-      setCases((prev) =>
-        prev.map((c) =>
-          c.id === caseId
-            ? {
-                ...c,
-                status: "escalated",
-                retryCount: c.retryCount + 1,
-                lastError: "Issuing bank declined retry authorization.",
-              }
-            : c
-        )
-      );
-
-      toast({
-        title: "Recovery Action Failed",
-        description: "Issuing bank declined the retry challenge. Escalated to operations desk.",
-        type: "error",
-        duration: 4500,
-      });
-
-      return false;
-    }
-
-    // SCENARIO A: SUCCESSFUL PRIMARY RECOVERY & REVENUE SETTLEMENT
-    const txnId = verificationOutcome.transactionId || `txn_rz_${Date.now()}`;
-
-    setExecutionProgressMap((prev) => ({
-      ...prev,
-      [caseId]: { 
-        caseId, 
-        step: "success", 
-        idempotencyKey, 
-        transactionId: txnId,
-        latency: `${verificationOutcome.telemetryLatencyMs}ms`,
-        currentIntervention: strategy.primaryAction.label
-      }
-    }));
-
-    addAuditEvent({
-      layer: "LAYER 4",
-      source: "EXECUTOR",
-      event: "ACTION_SUCCEEDED",
-      case: targetCase.id,
-      desc: `Razorpay Test Mode captured ${formatCurrency(targetCase.amount)}. Ref: ${txnId}`,
-      status: "SUCCESS",
-    });
-
-    addAuditEvent({
-      layer: "LAYER 5",
-      source: "VERIFICATION",
-      event: "RECOVERY_VERIFIED",
-      case: targetCase.id,
-      desc: `Primary recovery verified by webhook telemetry under Policy ${activePolicy.version}. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
-      status: "SUCCESS",
-    });
-
-    addAuditEvent({
-      layer: "LAYER 5",
-      source: "VERIFICATION",
-      event: "CASE_RESOLVED",
-      case: targetCase.id,
-      desc: `Settled ${formatCurrency(targetCase.amount)} in ledger. Revenue at Risk reduced.`,
-      status: "SUCCESS",
-    });
-
-    setCases((prev) =>
-      prev.map((c) =>
-        c.id === caseId
-          ? {
-              ...c,
-              status: "recovered",
-              retryCount: c.retryCount + 1,
-              resolutionDetails: {
-                recoveredAmount: c.amount,
-                channel: strategy.primaryAction.label,
-                timestamp: new Date().toISOString(),
-                transactionId: txnId,
-              },
-            }
-          : c
-      )
-    );
-
-    toast({
-      title: "Money Recovered! 🎉",
-      description: `Successfully captured ${formatCurrency(targetCase.amount)} via ${strategy.primaryAction.label}. Dashboard updated.`,
-      type: "success",
-      duration: 4000,
-    });
-
-    return true;
-  }, [cases, executionProgressMap, serviceHealth, activePolicy, merchantProfile.currentRole, addAuditEvent, toast]);
+  }, [cases]);
 
   const escalateCase = useCallback((caseId: string, reason?: string) => {
     const targetCase = cases.find((c) => c.id === caseId);

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { formatCurrency, cn } from "@/lib/utils";
 import { PolicyCheck } from "@/components/ui/PolicyCheck";
@@ -73,17 +73,76 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
   const [isAuditDrawerOpen, setIsAuditDrawerOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
-  // Retrieve current live case
-  const currentCase = useMemo(() => {
-    return getCaseById(caseId) || cases[0];
+  const [currentCase, setCurrentCase] = useState<any>(null);
+
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_USE_MOCKS === 'true') {
+      setCurrentCase(getCaseById(caseId) || cases[0]);
+    } else {
+      const fetchCase = async () => {
+        try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"}/api/v1/cases/${caseId}`);
+          if (res.ok) {
+            const data = await res.json();
+            setCurrentCase(data);
+          } else {
+             setCurrentCase(getCaseById(caseId) || cases[0]);
+          }
+        } catch (e) {
+          setCurrentCase(getCaseById(caseId) || cases[0]);
+        }
+      };
+      fetchCase();
+    }
   }, [caseId, getCaseById, cases]);
+
+  // Loading state if no currentCase yet
+  if (!currentCase) {
+    return <div className="p-8 text-center text-slate-500 animate-pulse">Loading case details...</div>;
+  }
+
 
   const executionState = getCaseExecutionState(currentCase.id);
   const isRecovered = currentCase.status === "recovered";
 
   // Dynamic AI synthesis, risk signals, deterministic policy check, and intelligent recovery strategy
-  const aiDecision = useMemo(() => getCaseDecision(currentCase), [currentCase, getCaseDecision]);
-  const strategy = useMemo(() => getCaseStrategy(currentCase), [currentCase, getCaseStrategy]);
+  const [aiDecision, setAiDecision] = useState<any>(null);
+  const [strategy, setStrategy] = useState<any>(null);
+  
+  useEffect(() => {
+    if (currentCase) {
+      if (process.env.NEXT_PUBLIC_USE_MOCKS === 'true') {
+        setAiDecision(getCaseDecision(currentCase));
+        setStrategy(getCaseStrategy(currentCase));
+      } else {
+        const fetchDecision = async () => {
+          try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"}/api/v1/cases/${currentCase.id}/recovery/decision`, { method: "POST" });
+            const data = await res.json();
+            if (res.ok) {
+              setAiDecision(data);
+              // The backend decision is usually the strategy as well, or we mock strategy from decision.
+              // We'll mock strategy using getCaseStrategy for now as backend might just return decision.
+              setStrategy(getCaseStrategy(currentCase));
+            } else {
+              setAiDecision(getCaseDecision(currentCase));
+              setStrategy(getCaseStrategy(currentCase));
+            }
+          } catch (e) {
+             setAiDecision(getCaseDecision(currentCase));
+             setStrategy(getCaseStrategy(currentCase));
+          }
+        };
+        fetchDecision();
+      }
+    }
+  }, [currentCase, getCaseDecision, getCaseStrategy]);
+
+  // Loading state if no decision yet
+  if (!aiDecision || !strategy) {
+    return <div className="p-8 text-center text-slate-500 animate-pulse">Synthesizing intelligent decision...</div>;
+  }
+
   const policyResult = useMemo(() => getCasePolicy(currentCase), [currentCase, getCasePolicy]);
   const signals = useMemo(() => extractRiskSignals(currentCase), [currentCase]);
 
@@ -270,7 +329,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
       {/* 3. Lifecycle Progress Stepper (0 to 6) */}
       <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm relative overflow-hidden">
         <div className="flex items-center justify-between relative z-10">
-          {LIFECYCLE_STEPS.map((step, idx) => {
+          {LIFECYCLE_STEPS.map((step: any, idx: number) => {
             const isCompleted = idx <= lifecycleProgress && executionState !== "idle";
             const isCurrent = idx === lifecycleProgress && (executionState === "executing" || executionState === "verifying");
             const isIdlePassed = executionState === "idle" && idx <= 3;
@@ -442,7 +501,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1">
                     <PlusCircle className="w-3 h-3" /> Positive Drivers
                   </span>
-                  {aiDecision.contributingSignals.positive.map((pos, i) => (
+                  {aiDecision.contributingSignals.positive.map((pos: any, i: number) => (
                     <div key={i} className="text-slate-700 dark:text-text-secondary text-[11px] flex items-start gap-1.5">
                       <span className="text-emerald-600 font-bold">+</span>
                       <span>{pos}</span>
@@ -456,7 +515,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   {aiDecision.contributingSignals.negative.length === 0 ? (
                     <div className="text-slate-400 text-[11px]">None identified</div>
                   ) : (
-                    aiDecision.contributingSignals.negative.map((neg, i) => (
+                    aiDecision.contributingSignals.negative.map((neg: any, i: number) => (
                       <div key={i} className="text-slate-700 dark:text-text-secondary text-[11px] flex items-start gap-1.5">
                         <span className="text-rose-600 font-bold">−</span>
                         <span>{neg}</span>
@@ -501,7 +560,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
             </div>
 
             <div className="space-y-2 text-xs">
-              {aiDecision.alternatives.map((alt, i) => (
+              {aiDecision.alternatives.map((alt: any, i: number) => (
                 <div 
                   key={i} 
                   className={cn(
@@ -560,7 +619,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
             </div>
 
             <div className="space-y-0 pl-2">
-              {aiDecision.decisionTimeline.map((item, idx) => (
+              {aiDecision.decisionTimeline.map((item: any, idx: number) => (
                 <div key={idx} className="relative pl-6 pb-3.5 border-l border-slate-200 dark:border-border-subtle last:border-0 last:pb-0">
                   <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
                   <div className="flex items-baseline justify-between text-xs">
@@ -603,7 +662,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   Initial intake recorded. Awaiting recovery execution.
                 </div>
               ) : (
-                caseAuditEvents.map((evt) => {
+                caseAuditEvents.map((evt: any) => {
                   const isSuccess = evt.event === "CASE_RESOLVED" || evt.event === "ACTION_SUCCEEDED" || evt.event === "POLICY_APPROVED";
                   const isBlocked = evt.event === "POLICY_BLOCKED";
                   const isTimeout = evt.event === "VERIFICATION_TIMEOUT";
@@ -683,7 +742,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
 
             {/* Policy Checklist */}
             <div className="space-y-1 mb-6">
-              {policyResult.checks.map((chk) => (
+              {policyResult.checks.map((chk: any) => (
                 <PolicyCheck
                   key={chk.id}
                   name={chk.name}

@@ -25,17 +25,37 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
 import { formatCurrency } from "@/lib/utils";
 import { useReclaim } from "@/lib/context/ReclaimContext";
+import { useCasesApi } from "@/lib/hooks/useCasesApi";
 import { Case, FailureType } from "@/lib/types";
 
 function AtRiskContent() {
   const { cases, metrics, resetDemoData } = useReclaim();
   const { toast } = useToast();
   const searchParams = useSearchParams();
-  
+
   const [activeTab, setActiveTab] = useState("All Cases");
   const [searchTerm, setSearchTerm] = useState("");
   const [failureFilter, setFailureFilter] = useState<string>("ALL");
   const [sortBy, setSortBy] = useState<"expected_desc" | "amount_desc" | "amount_asc" | "prob_desc" | "newest">("expected_desc");
+  
+  // Convert tab and filters to API params
+  const apiStatus = activeTab === "Recovery Ready" ? "inProgress" : 
+                    activeTab === "Human Review" ? "atRisk" : 
+                    activeTab === "Escalated" ? "escalated" : 
+                    activeTab === "Stopped" ? "stopped" : 
+                    activeTab === "Recovered" ? "recovered" : undefined;
+                    
+  const apiFailure = failureFilter !== "ALL" ? failureFilter : undefined;
+  const apiPriority = activeTab === "High Priority" ? "high" : undefined;
+
+  const { items: apiCases, isLoading: isApiLoading } = useCasesApi({
+    status: apiStatus,
+    failure_type: apiFailure,
+    priority: apiPriority,
+    page: 1,
+    page_size: 100
+  });
+
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -75,7 +95,7 @@ function AtRiskContent() {
   ], [tabCounts]);
 
   const filteredCases = useMemo(() => {
-    let result = cases.filter((c) => {
+    let result = apiCases.filter((c) => {
       // Search filter
       const term = searchTerm.toLowerCase();
       const matchesSearch = 
@@ -114,7 +134,7 @@ function AtRiskContent() {
     });
 
     return result;
-  }, [cases, searchTerm, activeTab, failureFilter, sortBy]);
+  }, [apiCases, searchTerm, activeTab, failureFilter, sortBy]);
 
   const handleRowClick = (caseItem: Case) => {
     setSelectedCase(caseItem);

@@ -5,6 +5,14 @@ import { ICampaignRepository, MockCampaignRepository, ICommunicationRepository, 
 import { defaultRecoveryExecutor, RecoveryExecutor } from "../recovery/recoveryExecutor";
 import { defaultVerificationService, VerificationService } from "../recovery/verificationService";
 
+import { HttpCaseRepository } from "./http/HttpCaseRepository";
+import { HttpPolicyRepository } from "./http/HttpPolicyRepository";
+import { HttpAuditRepository } from "./http/HttpAuditRepository";
+import { HttpCampaignRepository } from "./http/HttpCampaignRepository";
+import { HttpCommunicationRepository } from "./http/HttpCommunicationRepository";
+import { HttpRecoveryExecutor } from "./http/HttpRecoveryExecutor";
+import { HttpVerificationService } from "./http/HttpVerificationService";
+
 export interface AppServices {
   caseRepo: ICaseRepository;
   policyRepo: IPolicyRepository;
@@ -21,16 +29,31 @@ class ServiceFactory {
 
   public static getServices(): AppServices {
     if (!this.instance) {
-      this.instance = {
-        caseRepo: new MockCaseRepository(),
-        policyRepo: new MockPolicyRepository(),
-        merchantRepo: new MockMerchantRepository(),
-        auditRepo: new MockAuditRepository(),
-        campaignRepo: new MockCampaignRepository(),
-        communicationRepo: new MockCommunicationRepository(),
-        recoveryExecutor: defaultRecoveryExecutor,
-        verificationService: defaultVerificationService,
-      };
+      const useMocks = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
+
+      if (useMocks) {
+        this.instance = {
+          caseRepo: new MockCaseRepository(),
+          policyRepo: new MockPolicyRepository(),
+          merchantRepo: new MockMerchantRepository(),
+          auditRepo: new MockAuditRepository(),
+          campaignRepo: new MockCampaignRepository(),
+          communicationRepo: new MockCommunicationRepository(),
+          recoveryExecutor: defaultRecoveryExecutor,
+          verificationService: defaultVerificationService,
+        };
+      } else {
+        this.instance = {
+          caseRepo: new HttpCaseRepository(),
+          policyRepo: new HttpPolicyRepository(),
+          merchantRepo: new MockMerchantRepository(), // Assuming no backend for merchant yet
+          auditRepo: new HttpAuditRepository(),
+          campaignRepo: new HttpCampaignRepository(),
+          communicationRepo: new HttpCommunicationRepository(),
+          recoveryExecutor: new HttpRecoveryExecutor(),
+          verificationService: new HttpVerificationService(),
+        };
+      }
     }
     return this.instance;
   }
