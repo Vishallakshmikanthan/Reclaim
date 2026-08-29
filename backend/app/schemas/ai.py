@@ -55,3 +55,24 @@ class SanitizedRecoveryContext(BaseModel):
     case_priority: str = "Medium"
     merchant_policy_summary: dict[str, Any] = Field(default_factory=dict)
     customer_message: str | None = None
+
+class AIBatchAnalysis(BaseModel):
+    summary: str = Field(..., min_length=1, description="High-level batch recovery summary")
+    dominant_failure_patterns: list[str] = Field(default_factory=list, description="Primary failure clusters")
+    recommended_strategy: str = Field(..., description="Overall recovery strategy for the batch")
+    priority_reason: str = Field(..., description="Justification for prioritizing the selected cases")
+    risks: list[str] = Field(default_factory=list, description="Operational or financial risks")
+    do_not_do: list[str] = Field(default_factory=list, description="Explicit boundaries and negative guardrails")
+    decision_source: DecisionSource = DecisionSource.deterministic_fallback
+    model_id: str | None = None
+    latency_ms: int | None = None
+
+class SanitizedBatchContext(BaseModel):
+    total_cases: int = Field(ge=0)
+    total_amount_minor: int = Field(ge=0)
+    failure_type_distribution: dict[str, int] = Field(default_factory=dict)
+    retry_distribution: dict[str, int] = Field(default_factory=dict)
+    priority_distribution: dict[str, int] = Field(default_factory=dict)
+    amount_buckets: dict[str, int] = Field(default_factory=dict)
+    policy_summary: dict[str, Any] = Field(default_factory=dict)
+    currency: str = "INR"

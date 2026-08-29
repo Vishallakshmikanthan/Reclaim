@@ -10,16 +10,22 @@ from ..core.errors import (
     ServiceUnavailableError,
     WebhookVerificationError,
 )
+from ..db.models import RecoveryBatchModel, RecoveryBatchItemModel
 from ..engines import *
 from ..schemas import *
 
 def utcnow():
     return datetime.now(timezone.utc)
 
+def uid():
+    import uuid
+    return str(uuid.uuid4())
+
 class Services:
-    policy_engine, decision_engine, safety, executor, verifier, metrics = (
+    policy_engine, decision_engine, prioritization_engine, safety, executor, verifier, metrics = (
         PolicyEngine(),
         DecisionEngine(),
+        PrioritizationEngine(),
         SafetyController(),
         MockRecoveryExecutor(),
         MockVerificationService(),
@@ -53,15 +59,18 @@ class Services:
             self.ai_provider = ai_provider
         elif self.settings.ai_provider == "mock":
             self.ai_provider = MockAIRecoveryProvider()
-        elif self.settings.ai_provider == "nemotron" and self.settings.nvidia_api_key:
-            self.ai_provider = NemotronRecoveryProvider(
-                api_key=self.settings.nvidia_api_key,
-                model=self.settings.nvidia_nemotron_model,
-                base_url=self.settings.nvidia_api_base_url,
-                timeout_seconds=self.settings.ai_request_timeout_seconds,
-            )
+        elif self.settings.ai_provider == "nemotron":
+            if self.settings.nvidia_api_key:
+                self.ai_provider = NemotronRecoveryProvider(
+                    api_key=self.settings.nvidia_api_key,
+                    model=self.settings.nvidia_nemotron_model,
+                    base_url=self.settings.nvidia_api_base_url,
+                    timeout_seconds=self.settings.ai_request_timeout_seconds,
+                )
+            else:
+                self.ai_provider = MockAIRecoveryProvider()
         else:
-            self.ai_provider = None
+            self.ai_provider = MockAIRecoveryProvider()
 
     def audit(self, event_type: str, **kwargs) -> AuditEvent:
         return self.repo.audit(AuditEvent(event_type=event_type, **kwargs))
@@ -106,7 +115,6 @@ class Services:
                 )
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
 
-                # Strategy mapping
                 interv = ai_rec.recommended_intervention
                 if interv in {InterventionEnum.RETRY_PAYMENT, InterventionEnum.WAIT_AND_RETRY}:
                     strat = Strategy.retry_payment
@@ -184,11 +192,9 @@ class Services:
                 fallback.decision_source = DecisionSource.deterministic_fallback
                 return fallback
 
-        # Default when no AI provider is configured or key is absent
         fallback = self.decision_engine.decide(case, policy_val)
         fallback.decision_source = DecisionSource.deterministic_fallback
         return fallback
-
 
     def action(self, case_id: str, request: RecoveryActionRequest, key: str) -> RecoveryAction:
         if not key:
@@ -212,9 +218,7 @@ class Services:
         if strategy == Strategy.no_action:
             raise RecoveryExecutionError("No automated action is permitted for this case.")
         
-        # Policy validation is enforced in validate() above
         self.audit("RECOVERY_REQUESTED", case_id=case_id, policy_version=policy.policy_version, metadata={"strategy": str(strategy), "amount": case.amount})
-
 
         scenario = request.scenario or case.demo_scenario.lower().replace("c_", "")
         
@@ -286,11 +290,9 @@ class Services:
         event_name = payload.get("event", "unknown")
         event_id = payload.get("event_id") or payload.get("id") or f"evt_{abs(hash(raw_body))}"
 
-        # Idempotency check: duplicate webhooks are harmless and must not duplicate financial outcomes
         if self.repo.is_webhook_event_processed(event_id):
             return WebhookResponse(status="duplicate", event_id=event_id, message="Webhook event already processed.")
 
-        # Extract payment / order entities
         payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
         order_entity = payload.get("payload", {}).get("order", {}).get("entity", {})
         
@@ -402,6 +404,635 @@ class Services:
             message="Status remains pending/unknown after reconciliation check."
         )
 
+    # ============================================================
+    # STEP 20 RECOVERY QUEUE & BATCH ORCHESTRATION SERVICES
+    # ============================================================
+
+    def get_recovery_queue(
+        self,
+        status: CaseStatus | None = None,
+        failure_type: FailureType | None = None,
+        priority: str | None = None,
+        min_amount: int | None = None,
+        max_amount: int | None = None,
+        eligible_only: bool = False,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> RecoveryQueueResponse:
+        active_policy = self.policy()
+        raw_cases, _ = self.repo.list_cases(
+            status=status,
+            failure_type=failure_type,
+            priority=priority,
+            min_amount=min_amount,
+            max_amount=max_amount,
+            page=1,
+            page_size=5000,
+        )
+
+        queue_items: list[QueueItem] = []
+        total_at_risk = 0
+        total_expected = 0
+        eligible_cnt = 0
+        blocked_cnt = 0
+
+        for c in raw_cases:
+            pol_res = self.policy_engine.validate(c, active_policy)
+            score, tier, reasons = self.prioritization_engine.calculate_priority(c, pol_res)
+            dec = self.decision_engine.decide(c, pol_res)
+
+            if eligible_only and not pol_res.allowed:
+                continue
+
+            if pol_res.allowed:
+                eligible_cnt += 1
+            else:
+                blocked_cnt += 1
+
+            if c.status in {CaseStatus.at_risk, CaseStatus.in_progress, CaseStatus.pending, CaseStatus.executing}:
+                total_at_risk += c.amount
+                total_expected += round(c.amount * c.prob)
+
+            queue_items.append(
+                QueueItem(
+                    case_id=c.id,
+                    payment_id=c.payment_id,
+                    customer_id=c.customer_id,
+                    customer=c.customer,
+                    amount=c.amount,
+                    currency="INR",
+                    payment_method=c.payment_method.value if hasattr(c.payment_method, "value") else str(c.payment_method),
+                    failure_type=c.failure_type.value if hasattr(c.failure_type, "value") else str(c.failure_type),
+                    failure_reason=c.failure_reason,
+                    age=c.age,
+                    retry_count=c.retry_count,
+                    contact_count_24h=c.contact_count_24h,
+                    status=c.status,
+                    priority_score=score,
+                    priority_tier=tier,
+                    priority_reasons=reasons,
+                    expected_recovery_minor=round(c.amount * c.prob),
+                    policy_allowed=pol_res.allowed,
+                    policy_blocked_rules=pol_res.blocked_rules,
+                    policy_summary=pol_res.summary,
+                    recommended_intervention=dec.recommended_intervention or "RETRY_PAYMENT",
+                    strategy=dec.strategy.value if hasattr(dec.strategy, "value") else str(dec.strategy),
+                    decision_source=DecisionSource.deterministic_fallback,
+                    ai_diagnosis=dec.diagnosis,
+                )
+            )
+
+        queue_items.sort(key=lambda x: (x.priority_score, x.expected_recovery_minor), reverse=True)
+        total_items = len(queue_items)
+
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_items = queue_items[start_idx:end_idx]
+
+        summary = RecoveryQueueSummary(
+            total_at_risk_minor=total_at_risk,
+            total_expected_recovery_minor=total_expected,
+            eligible_count=eligible_cnt,
+            blocked_count=blocked_cnt,
+        )
+
+        return RecoveryQueueResponse(
+            items=paginated_items,
+            page=page,
+            page_size=page_size,
+            total=total_items,
+            summary=summary,
+        )
+
+    def preview_batch(self, request: BatchPreviewRequest) -> BatchPreviewResponse:
+        active_policy = self.policy()
+        if request.case_ids:
+            cases = self.repo.get_cases_by_ids(request.case_ids)
+        else:
+            cases, _ = self.repo.list_cases(
+                status=request.status,
+                failure_type=request.failure_type,
+                priority=request.priority,
+                min_amount=request.min_amount,
+                max_amount=request.max_amount,
+                page=1,
+                page_size=request.max_batch_size,
+            )
+
+        selected_cases = []
+        accumulated_exposure = 0
+        for c in cases:
+            if len(selected_cases) >= request.max_batch_size:
+                break
+            if request.max_monetary_exposure_minor and (accumulated_exposure + c.amount > request.max_monetary_exposure_minor):
+                continue
+            selected_cases.append(c)
+            accumulated_exposure += c.amount
+
+        queue_items = []
+        total_at_risk = 0
+        total_expected = 0
+        eligible_cnt = 0
+        eligible_rev = 0
+        blocked_cnt = 0
+        blocked_rev = 0
+        manual_review_cnt = 0
+        interventions: dict[str, int] = {}
+
+        for c in selected_cases:
+            pol_res = self.policy_engine.validate(c, active_policy)
+            score, tier, reasons = self.prioritization_engine.calculate_priority(c, pol_res)
+            dec = self.decision_engine.decide(c, pol_res)
+
+            if request.eligible_only and not pol_res.allowed:
+                continue
+
+            total_at_risk += c.amount
+            exp_val = round(c.amount * c.prob)
+            total_expected += exp_val
+
+            if pol_res.allowed:
+                eligible_cnt += 1
+                eligible_rev += c.amount
+            else:
+                blocked_cnt += 1
+                blocked_rev += c.amount
+
+            interv = dec.recommended_intervention or "RETRY_PAYMENT"
+            if interv in {"MANUAL_REVIEW", "NO_ACTION"}:
+                manual_review_cnt += 1
+            interventions[interv] = interventions.get(interv, 0) + 1
+
+            queue_items.append(
+                QueueItem(
+                    case_id=c.id,
+                    payment_id=c.payment_id,
+                    customer_id=c.customer_id,
+                    customer=c.customer,
+                    amount=c.amount,
+                    currency="INR",
+                    payment_method=c.payment_method.value if hasattr(c.payment_method, "value") else str(c.payment_method),
+                    failure_type=c.failure_type.value if hasattr(c.failure_type, "value") else str(c.failure_type),
+                    failure_reason=c.failure_reason,
+                    age=c.age,
+                    retry_count=c.retry_count,
+                    contact_count_24h=c.contact_count_24h,
+                    status=c.status,
+                    priority_score=score,
+                    priority_tier=tier,
+                    priority_reasons=reasons,
+                    expected_recovery_minor=exp_val,
+                    policy_allowed=pol_res.allowed,
+                    policy_blocked_rules=pol_res.blocked_rules,
+                    policy_summary=pol_res.summary,
+                    recommended_intervention=interv,
+                    strategy=dec.strategy.value if hasattr(dec.strategy, "value") else str(dec.strategy),
+                    decision_source=DecisionSource.deterministic_fallback,
+                    ai_diagnosis=dec.diagnosis,
+                )
+            )
+
+        queue_items.sort(key=lambda x: (x.priority_score, x.expected_recovery_minor), reverse=True)
+
+        sanitized_batch_ctx = ContextSanitizer.sanitize_batch(selected_cases, active_policy)
+        ai_analysis = None
+        if self.ai_provider:
+            try:
+                ai_analysis = self.ai_provider.generate_batch_analysis(sanitized_batch_ctx)
+            except Exception:
+                ai_analysis = self.decision_engine.analyze_batch(sanitized_batch_ctx)
+        else:
+            ai_analysis = self.decision_engine.analyze_batch(sanitized_batch_ctx)
+
+        return BatchPreviewResponse(
+            selected_count=len(queue_items),
+            total_revenue_at_risk_minor=total_at_risk,
+            estimated_recoverable_minor=total_expected,
+            eligible_count=eligible_cnt,
+            eligible_revenue_minor=eligible_rev,
+            blocked_count=blocked_cnt,
+            blocked_revenue_minor=blocked_rev,
+            manual_review_count=manual_review_cnt,
+            recommended_interventions=interventions,
+            cases=queue_items,
+            ai_analysis=ai_analysis,
+        )
+
+    def execute_batch(self, request: BatchExecutionRequest, idempotency_key: str) -> BatchExecutionResponse:
+        if not idempotency_key:
+            raise RecoveryExecutionError("Idempotency-Key header is required for batch execution.")
+
+        existing_batch = self.repo.get_batch_by_idempotency_key(idempotency_key)
+        if existing_batch:
+            items = self.repo.get_batch_items(existing_batch.id)
+            item_outcomes = [
+                BatchItemOutcome(
+                    case_id=it.case_id,
+                    amount=it.amount_minor,
+                    status=it.status,
+                    priority_score=it.priority_score,
+                    priority_tier=it.priority_tier,
+                    strategy=it.strategy,
+                    action_id=it.recovery_action_id,
+                    verification_status="verified" if it.status == "RECOVERED" else it.status.lower(),
+                    policy_allowed=it.policy_allowed,
+                    blocked_rules=it.blocked_rules if isinstance(it.blocked_rules, list) else [],
+                    error=it.execution_error,
+                )
+                for it in items
+            ]
+            rate = float(round((existing_batch.cases_recovered / existing_batch.cases_selected * 100), 1)) if existing_batch.cases_selected > 0 else 0.0
+            block_rate = float(round((existing_batch.cases_blocked / existing_batch.cases_selected * 100), 1)) if existing_batch.cases_selected > 0 else 0.0
+            return BatchExecutionResponse(
+                batch_id=existing_batch.id,
+                status=RecoveryBatchStatus(existing_batch.status),
+                batch_size=existing_batch.batch_size,
+                cases_selected=existing_batch.cases_selected,
+                cases_eligible=existing_batch.cases_eligible,
+                cases_blocked=existing_batch.cases_blocked,
+                cases_attempted=existing_batch.cases_attempted,
+                cases_recovered=existing_batch.cases_recovered,
+                cases_failed=existing_batch.cases_failed,
+                cases_pending=existing_batch.cases_pending,
+                total_revenue_at_risk_minor=existing_batch.total_revenue_at_risk_minor,
+                eligible_revenue_minor=existing_batch.eligible_revenue_minor,
+                blocked_revenue_minor=existing_batch.blocked_revenue_minor,
+                attempted_recovery_minor=existing_batch.attempted_recovery_minor,
+                recovered_revenue_minor=existing_batch.recovered_revenue_minor,
+                failed_recovery_minor=existing_batch.failed_recovery_minor,
+                pending_recovery_minor=existing_batch.pending_recovery_minor,
+                recovery_rate=rate,
+                policy_block_rate=block_rate,
+                ai_fallback_count=0,
+                communication_count=0,
+                items=item_outcomes,
+                ai_analysis=AIBatchAnalysis.model_validate(existing_batch.ai_analysis) if existing_batch.ai_analysis else None,
+                created_at=existing_batch.created_at,
+                completed_at=existing_batch.completed_at,
+            )
+
+        active_policy = self.policy()
+
+        if request.case_ids:
+            candidates = self.repo.get_cases_by_ids(request.case_ids)
+        else:
+            candidates, _ = self.repo.list_cases(
+                status=request.status,
+                failure_type=request.failure_type,
+                priority=request.priority,
+                min_amount=request.min_amount,
+                max_amount=request.max_amount,
+                page=1,
+                page_size=request.max_batch_size,
+            )
+
+        scored_candidates = []
+        for c in candidates:
+            pol_res = self.policy_engine.validate(c, active_policy)
+            score, tier, _ = self.prioritization_engine.calculate_priority(c, pol_res)
+            scored_candidates.append((score, c))
+        
+        scored_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        selected_cases = []
+        accumulated_exposure = 0
+        for score, c in scored_candidates:
+            if len(selected_cases) >= request.max_batch_size:
+                break
+            if request.max_monetary_exposure_minor and (accumulated_exposure + c.amount > request.max_monetary_exposure_minor):
+                continue
+            selected_cases.append(c)
+            accumulated_exposure += c.amount
+
+        batch_id = ident("batch")
+        
+        sanitized_batch_ctx = ContextSanitizer.sanitize_batch(selected_cases, active_policy)
+        ai_analysis = None
+        if self.ai_provider:
+            try:
+                ai_analysis = self.ai_provider.generate_batch_analysis(sanitized_batch_ctx)
+            except Exception:
+                ai_analysis = self.decision_engine.analyze_batch(sanitized_batch_ctx)
+        else:
+            ai_analysis = self.decision_engine.analyze_batch(sanitized_batch_ctx)
+
+        batch = RecoveryBatchModel(
+            id=batch_id,
+            merchant_id=self.repo.merchant_id,
+            status="RUNNING",
+            idempotency_key=idempotency_key,
+            selection_criteria=request.model_dump(mode="json", exclude_none=True),
+            batch_size=len(selected_cases),
+            total_revenue_at_risk_minor=sum(c.amount for c in selected_cases),
+            cases_selected=len(selected_cases),
+            ai_analysis=ai_analysis.model_dump(mode="json") if ai_analysis else None,
+            created_at=utcnow(),
+            started_at=utcnow(),
+        )
+
+        batch_items: list[RecoveryBatchItemModel] = []
+        item_outcomes: list[BatchItemOutcome] = []
+
+        self.audit("BATCH_CREATED", metadata={"batch_id": batch_id, "size": len(selected_cases), "idempotency_key": idempotency_key})
+        self.audit("BATCH_AUTHORIZED", metadata={"batch_id": batch_id, "amount_minor": batch.total_revenue_at_risk_minor})
+        self.audit("BATCH_STARTED", metadata={"batch_id": batch_id})
+
+        cases_eligible = 0
+        cases_blocked = 0
+        cases_attempted = 0
+        cases_recovered = 0
+        cases_failed = 0
+        cases_pending = 0
+
+        eligible_rev = 0
+        blocked_rev = 0
+        attempted_rev = 0
+        recovered_rev = 0
+        failed_rev = 0
+        pending_rev = 0
+
+        for c_item in selected_cases:
+            case = self.repo.get_case_for_update(c_item.id)
+            if not case:
+                continue
+
+            current_policy = self.policy()
+            pol_res = self.policy_engine.validate(case, current_policy)
+            score, tier, _ = self.prioritization_engine.calculate_priority(case, pol_res)
+            dec = self.decision_engine.decide(case, pol_res)
+            strat = dec.strategy
+
+            if case.status == CaseStatus.recovered:
+                item_model = RecoveryBatchItemModel(
+                    id=uid(),
+                    batch_id=batch_id,
+                    case_id=case.id,
+                    merchant_id=self.repo.merchant_id,
+                    priority_score=score,
+                    priority_tier=tier,
+                    amount_minor=case.amount,
+                    expected_recovery_minor=0,
+                    policy_allowed=False,
+                    blocked_rules=["Case is already recovered"],
+                    recommended_intervention="NO_ACTION",
+                    strategy="no_action",
+                    decision_source=DecisionSource.deterministic_fallback.value,
+                    status="SKIPPED",
+                    created_at=utcnow(),
+                    executed_at=utcnow(),
+                )
+                batch_items.append(item_model)
+                item_outcomes.append(
+                    BatchItemOutcome(
+                        case_id=case.id,
+                        amount=case.amount,
+                        status="SKIPPED",
+                        priority_score=score,
+                        priority_tier=tier,
+                        strategy="no_action",
+                        policy_allowed=False,
+                        blocked_rules=["Case is already recovered"],
+                    )
+                )
+                continue
+
+            if not pol_res.allowed or strat == Strategy.no_action:
+                cases_blocked += 1
+                blocked_rev += case.amount
+                item_model = RecoveryBatchItemModel(
+                    id=uid(),
+                    batch_id=batch_id,
+                    case_id=case.id,
+                    merchant_id=self.repo.merchant_id,
+                    priority_score=score,
+                    priority_tier=tier,
+                    amount_minor=case.amount,
+                    expected_recovery_minor=round(case.amount * case.prob),
+                    policy_allowed=False,
+                    blocked_rules=pol_res.blocked_rules,
+                    recommended_intervention=dec.recommended_intervention or "NO_ACTION",
+                    strategy=strat.value if hasattr(strat, "value") else str(strat),
+                    decision_source=dec.decision_source.value if hasattr(dec.decision_source, "value") else str(dec.decision_source),
+                    status="BLOCKED",
+                    created_at=utcnow(),
+                    executed_at=utcnow(),
+                )
+                batch_items.append(item_model)
+                item_outcomes.append(
+                    BatchItemOutcome(
+                        case_id=case.id,
+                        amount=case.amount,
+                        status="BLOCKED",
+                        priority_score=score,
+                        priority_tier=tier,
+                        strategy=strat.value if hasattr(strat, "value") else str(strat),
+                        policy_allowed=False,
+                        blocked_rules=pol_res.blocked_rules,
+                    )
+                )
+                self.audit("BATCH_CASE_BLOCKED", case_id=case.id, policy_version=pol_res.policy_version, metadata={"batch_id": batch_id, "rules": pol_res.blocked_rules})
+                continue
+
+            cases_eligible += 1
+            eligible_rev += case.amount
+            cases_attempted += 1
+            attempted_rev += case.amount
+
+            case_key = f"{idempotency_key}_{case.id}"
+            scenario = request.scenario or case.demo_scenario.lower().replace("c_", "")
+            self.audit("BATCH_CASE_ATTEMPTED", case_id=case.id, policy_version=pol_res.policy_version, metadata={"batch_id": batch_id, "strategy": str(strat)})
+
+            action = None
+            exec_err = None
+            try:
+                action = self.action(case.id, RecoveryActionRequest(strategy=strat, scenario=scenario), key=case_key)
+            except Exception as e:
+                exec_err = str(e)
+
+            if action and action.verification_status == "verified":
+                cases_recovered += 1
+                recovered_rev += case.amount
+                item_status = "RECOVERED"
+                self.audit("BATCH_CASE_RECOVERED", case_id=case.id, recovery_action_id=action.action_id, metadata={"batch_id": batch_id, "amount": case.amount})
+            elif action and action.verification_status in {"timeout", "pending", "unknown"}:
+                cases_pending += 1
+                pending_rev += case.amount
+                item_status = "PENDING"
+                self.audit("BATCH_CASE_PENDING", case_id=case.id, recovery_action_id=action.action_id, metadata={"batch_id": batch_id, "status": action.verification_status})
+            else:
+                cases_failed += 1
+                failed_rev += case.amount
+                item_status = "FAILED"
+                self.audit("BATCH_CASE_FAILED", case_id=case.id, recovery_action_id=action.action_id if action else None, metadata={"batch_id": batch_id, "error": exec_err})
+
+            item_model = RecoveryBatchItemModel(
+                id=uid(),
+                batch_id=batch_id,
+                case_id=case.id,
+                merchant_id=self.repo.merchant_id,
+                priority_score=score,
+                priority_tier=tier,
+                amount_minor=case.amount,
+                expected_recovery_minor=round(case.amount * case.prob),
+                policy_allowed=True,
+                blocked_rules=[],
+                recommended_intervention=dec.recommended_intervention or "RETRY_PAYMENT",
+                strategy=strat.value if hasattr(strat, "value") else str(strat),
+                decision_source=dec.decision_source.value if hasattr(dec.decision_source, "value") else str(dec.decision_source),
+                status=item_status,
+                recovery_action_id=action.action_id if action else None,
+                execution_error=exec_err,
+                created_at=utcnow(),
+                executed_at=utcnow(),
+            )
+            batch_items.append(item_model)
+            item_outcomes.append(
+                BatchItemOutcome(
+                    case_id=case.id,
+                    amount=case.amount,
+                    status=item_status,
+                    priority_score=score,
+                    priority_tier=tier,
+                    strategy=strat.value if hasattr(strat, "value") else str(strat),
+                    action_id=action.action_id if action else None,
+                    verification_status=action.verification_status if action else "failed",
+                    policy_allowed=True,
+                    blocked_rules=[],
+                    error=exec_err,
+                )
+            )
+
+        if cases_attempted > 0 and cases_recovered == cases_attempted and cases_failed == 0 and cases_pending == 0:
+            final_status = "COMPLETED"
+        elif cases_recovered > 0 or cases_pending > 0 or (cases_attempted > 0 and cases_failed > 0 and cases_recovered > 0):
+            final_status = "PARTIALLY_COMPLETED"
+        elif cases_attempted > 0 and cases_recovered == 0 and cases_pending == 0:
+            final_status = "FAILED"
+        else:
+            final_status = "COMPLETED"
+
+        batch.status = final_status
+        batch.eligible_revenue_minor = eligible_rev
+        batch.blocked_revenue_minor = blocked_rev
+        batch.attempted_recovery_minor = attempted_rev
+        batch.recovered_revenue_minor = recovered_rev
+        batch.failed_recovery_minor = failed_rev
+        batch.pending_recovery_minor = pending_rev
+        batch.cases_eligible = cases_eligible
+        batch.cases_blocked = cases_blocked
+        batch.cases_attempted = cases_attempted
+        batch.cases_recovered = cases_recovered
+        batch.cases_failed = cases_failed
+        batch.cases_pending = cases_pending
+        batch.completed_at = utcnow()
+
+        self.repo.create_batch(batch, batch_items)
+
+        self.audit(
+            f"BATCH_{final_status}",
+            metadata={
+                "batch_id": batch_id,
+                "recovered_minor": recovered_rev,
+                "cases_recovered": cases_recovered,
+                "cases_blocked": cases_blocked,
+                "cases_failed": cases_failed,
+                "cases_pending": cases_pending,
+            }
+        )
+
+        rate = float(round((cases_recovered / len(selected_cases) * 100), 1)) if len(selected_cases) > 0 else 0.0
+        block_rate = float(round((cases_blocked / len(selected_cases) * 100), 1)) if len(selected_cases) > 0 else 0.0
+
+        return BatchExecutionResponse(
+            batch_id=batch_id,
+            status=RecoveryBatchStatus(final_status),
+            batch_size=len(selected_cases),
+            cases_selected=len(selected_cases),
+            cases_eligible=cases_eligible,
+            cases_blocked=cases_blocked,
+            cases_attempted=cases_attempted,
+            cases_recovered=cases_recovered,
+            cases_failed=cases_failed,
+            cases_pending=cases_pending,
+            total_revenue_at_risk_minor=batch.total_revenue_at_risk_minor,
+            eligible_revenue_minor=eligible_rev,
+            blocked_revenue_minor=blocked_rev,
+            attempted_recovery_minor=attempted_rev,
+            recovered_revenue_minor=recovered_rev,
+            failed_recovery_minor=failed_rev,
+            pending_recovery_minor=pending_rev,
+            recovery_rate=rate,
+            policy_block_rate=block_rate,
+            ai_fallback_count=0,
+            communication_count=0,
+            items=item_outcomes,
+            ai_analysis=ai_analysis,
+            created_at=batch.created_at,
+            completed_at=batch.completed_at,
+        )
+
+    def get_batch(self, batch_id: str) -> BatchExecutionResponse:
+        b = self.repo.get_batch(batch_id)
+        if not b:
+            raise CaseNotFoundError(f"Recovery batch {batch_id} not found.")
+        items = self.repo.get_batch_items(batch_id)
+        item_outcomes = [
+            BatchItemOutcome(
+                case_id=it.case_id,
+                amount=it.amount_minor,
+                status=it.status,
+                priority_score=it.priority_score,
+                priority_tier=it.priority_tier,
+                strategy=it.strategy,
+                action_id=it.recovery_action_id,
+                verification_status="verified" if it.status == "RECOVERED" else it.status.lower(),
+                policy_allowed=it.policy_allowed,
+                blocked_rules=it.blocked_rules if isinstance(it.blocked_rules, list) else [],
+                error=it.execution_error,
+            )
+            for it in items
+        ]
+        rate = float(round((b.cases_recovered / b.cases_selected * 100), 1)) if b.cases_selected > 0 else 0.0
+        block_rate = float(round((b.cases_blocked / b.cases_selected * 100), 1)) if b.cases_selected > 0 else 0.0
+        return BatchExecutionResponse(
+            batch_id=b.id,
+            status=RecoveryBatchStatus(b.status),
+            batch_size=b.batch_size,
+            cases_selected=b.cases_selected,
+            cases_eligible=b.cases_eligible,
+            cases_blocked=b.cases_blocked,
+            cases_attempted=b.cases_attempted,
+            cases_recovered=b.cases_recovered,
+            cases_failed=b.cases_failed,
+            cases_pending=b.cases_pending,
+            total_revenue_at_risk_minor=b.total_revenue_at_risk_minor,
+            eligible_revenue_minor=b.eligible_revenue_minor,
+            blocked_revenue_minor=b.blocked_revenue_minor,
+            attempted_recovery_minor=b.attempted_recovery_minor,
+            recovered_revenue_minor=b.recovered_revenue_minor,
+            failed_recovery_minor=b.failed_recovery_minor,
+            pending_recovery_minor=b.pending_recovery_minor,
+            recovery_rate=rate,
+            policy_block_rate=block_rate,
+            ai_fallback_count=0,
+            communication_count=0,
+            items=item_outcomes,
+            ai_analysis=AIBatchAnalysis.model_validate(b.ai_analysis) if b.ai_analysis else None,
+            created_at=b.created_at,
+            completed_at=b.completed_at,
+        )
+
+    def cancel_batch(self, batch_id: str) -> BatchExecutionResponse:
+        b = self.repo.get_batch(batch_id)
+        if not b:
+            raise CaseNotFoundError(f"Recovery batch {batch_id} not found.")
+        if b.status not in {"COMPLETED", "FAILED", "CANCELLED"}:
+            b.status = "CANCELLED"
+            b.cancelled_at = utcnow()
+            self.repo.save_batch(b)
+            self.audit("BATCH_CANCELLED", metadata={"batch_id": batch_id})
+        return self.get_batch(batch_id)
+
 class CaseService(Services): pass
 class RecoveryService(Services): pass
 class PolicyService(Services): pass
@@ -410,4 +1041,3 @@ class CommunicationService(Services): pass
 class AuditService(Services): pass
 class EvaluationService(Services): pass
 class SystemHealthService(Services): pass
-

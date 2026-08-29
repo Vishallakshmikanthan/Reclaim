@@ -180,7 +180,6 @@ export interface Case {
   demoScenario?: "A_SUCCESS" | "B_POLICY_BLOCK" | "C_TIMEOUT" | "D_LOW_PROB" | "E_MEDIUM_LINK" | "STANDARD";
   lastError?: string;
   
-  // Rich intelligence metadata
   previousSuccessfulPayments?: number;
   previousFailedAttempts?: number;
   historicalRecoveryRate?: number;
@@ -226,8 +225,8 @@ export interface ExecutionProgress {
 export interface AlternativeAction {
   name: string;
   channel: string;
-  estimatedExpectedRecovery: number; // in paise
-  estimatedProbability: number; // 0.0 to 1.0
+  estimatedExpectedRecovery: number;
+  estimatedProbability: number;
   description: string;
   recommended?: boolean;
 }
@@ -242,37 +241,21 @@ export interface DecisionTimelineEvent {
 
 export interface RecoveryDecision {
   caseId: string;
-  
-  // 1. Root Cause & Context
   likelyRootCause: string;
   confidence: DecisionConfidence;
   whyThisMatters: string;
-  
-  // 2. Probability & Signals
   recoveryProbability: number;
   contributingSignals: {
     positive: string[];
     negative: string[];
   };
-  
-  // 3. Expected Value (Dynamically computed: amount * recoveryProbability)
-  expectedRecovery: number; // in paise
-  
-  // 4. Recommendation & Strategy
+  expectedRecovery: number;
   recommendedIntervention: RecommendedInterventionType;
   whyThisAction: string;
-  
-  // 5. Alternatives
   alternatives: AlternativeAction[];
-  
-  // 6. Decision Timeline
   decisionTimeline: DecisionTimelineEvent[];
-
-  // 7. Summary
   policyStatus: "Approved" | "Blocked";
   nextAction: string;
-
-  // Legacy/Compatibility fields
   recommendedAction: string;
   strategy: string;
   channel: RecoveryChannel;
@@ -342,7 +325,18 @@ export type AuditEventType =
   | "POLICY_ROLLBACK"
   | "POLICY_CREATED"
   | "POLICY_ACTIVATED"
-  | "POLICY_DEACTIVATED";
+  | "POLICY_DEACTIVATED"
+  | "BATCH_CREATED"
+  | "BATCH_AUTHORIZED"
+  | "BATCH_STARTED"
+  | "BATCH_CASE_ATTEMPTED"
+  | "BATCH_CASE_RECOVERED"
+  | "BATCH_CASE_BLOCKED"
+  | "BATCH_CASE_FAILED"
+  | "BATCH_CASE_PENDING"
+  | "BATCH_COMPLETED"
+  | "BATCH_PARTIALLY_COMPLETED"
+  | "BATCH_CANCELLED";
 
 export interface AuditEventDetails {
   policyRule?: string;
@@ -387,4 +381,154 @@ export interface EvaluationMetric {
   reclaimAction: string;
   reclaimOutcome: "RECOVERED" | "SAFELY_STOPPED" | "PREVENTED_BREACH" | "TIMED_OUT";
   upliftInr: number;
+}
+
+// ============================================================
+// STEP 20 RECOVERY QUEUE & BATCH ORCHESTRATION TYPES
+// ============================================================
+
+export type PriorityTier = "Critical" | "High" | "Medium" | "Low";
+
+export type RecoveryBatchStatus = 
+  | "PREVIEW" 
+  | "AUTHORIZED" 
+  | "RUNNING" 
+  | "COMPLETED" 
+  | "PARTIALLY_COMPLETED" 
+  | "FAILED" 
+  | "CANCELLED";
+
+export interface AIBatchAnalysis {
+  summary: string;
+  dominant_failure_patterns: string[];
+  recommended_strategy: string;
+  priority_reason: string;
+  risks: string[];
+  do_not_do: string[];
+  decision_source?: string;
+  model_id?: string | null;
+  latency_ms?: number;
+}
+
+export interface QueueItem {
+  case_id: string;
+  payment_id: string;
+  customer_id: string;
+  customer: string;
+  amount: number;
+  currency: string;
+  payment_method: string;
+  failure_type: string;
+  failure_reason: string;
+  age: string;
+  retry_count: number;
+  contact_count_24h: number;
+  status: string;
+  priority_score: number;
+  priority_tier: PriorityTier;
+  priority_reasons: string[];
+  expected_recovery_minor: number;
+  policy_allowed: boolean;
+  policy_blocked_rules: string[];
+  policy_summary: string;
+  recommended_intervention: string;
+  strategy: string;
+  decision_source: string;
+  ai_diagnosis?: string | null;
+}
+
+export interface RecoveryQueueSummary {
+  total_at_risk_minor: number;
+  total_expected_recovery_minor: number;
+  eligible_count: number;
+  blocked_count: number;
+}
+
+export interface RecoveryQueueResponse {
+  items: QueueItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  summary: RecoveryQueueSummary;
+}
+
+export interface BatchPreviewRequest {
+  case_ids?: string[];
+  status?: string;
+  failure_type?: string;
+  priority?: string;
+  min_amount?: number;
+  max_amount?: number;
+  eligible_only?: boolean;
+  max_batch_size?: number;
+  max_monetary_exposure_minor?: number;
+}
+
+export interface BatchPreviewResponse {
+  selected_count: number;
+  total_revenue_at_risk_minor: number;
+  estimated_recoverable_minor: number;
+  eligible_count: number;
+  eligible_revenue_minor: number;
+  blocked_count: number;
+  blocked_revenue_minor: number;
+  manual_review_count: number;
+  recommended_interventions: Record<string, number>;
+  cases: QueueItem[];
+  ai_analysis?: AIBatchAnalysis | null;
+}
+
+export interface BatchExecutionRequest {
+  case_ids?: string[];
+  status?: string;
+  failure_type?: string;
+  priority?: string;
+  min_amount?: number;
+  max_amount?: number;
+  eligible_only?: boolean;
+  max_batch_size?: number;
+  max_monetary_exposure_minor?: number;
+  scenario?: string;
+}
+
+export interface BatchItemOutcome {
+  case_id: string;
+  amount: number;
+  status: string;
+  priority_score: number;
+  priority_tier: string;
+  strategy: string;
+  action_id?: string | null;
+  verification_status?: string | null;
+  policy_allowed: boolean;
+  blocked_rules: string[];
+  error?: string | null;
+}
+
+export interface BatchExecutionResponse {
+  batch_id: string;
+  status: RecoveryBatchStatus;
+  batch_size: number;
+  cases_selected: number;
+  cases_eligible: number;
+  cases_blocked: number;
+  cases_attempted: number;
+  cases_recovered: number;
+  cases_failed: number;
+  cases_pending: number;
+  total_revenue_at_risk_minor: number;
+  eligible_revenue_minor: number;
+  blocked_revenue_minor: number;
+  attempted_recovery_minor: number;
+  recovered_revenue_minor: number;
+  failed_recovery_minor: number;
+  pending_recovery_minor: number;
+  recovery_rate: number;
+  policy_block_rate: number;
+  ai_fallback_count: number;
+  communication_count: number;
+  items: BatchItemOutcome[];
+  ai_analysis?: AIBatchAnalysis | null;
+  created_at: string;
+  completed_at?: string | null;
 }

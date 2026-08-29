@@ -15,11 +15,16 @@ import {
   X, 
   RotateCcw,
   Sparkles,
-  ChevronDown
+  ChevronDown,
+  Layers,
+  ShieldCheck,
+  CheckSquare,
+  Square
 } from "lucide-react";
 import { ProbabilityMeter } from "@/components/ui/ProbabilityMeter";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { CaseDrawer } from "@/components/CaseDrawer";
+import { BatchRecoveryDrawer } from "@/components/BatchRecoveryDrawer";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
@@ -38,6 +43,10 @@ function AtRiskContent() {
   const [failureFilter, setFailureFilter] = useState<string>("ALL");
   const [sortBy, setSortBy] = useState<"expected_desc" | "amount_desc" | "amount_asc" | "prob_desc" | "newest">("expected_desc");
   
+  // Selection state for Batch Recovery Orchestration
+  const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
+  const [isBatchDrawerOpen, setIsBatchDrawerOpen] = useState(false);
+
   // Convert tab and filters to API params
   const apiStatus = activeTab === "Recovery Ready" ? "inProgress" : 
                     activeTab === "Human Review" ? "atRisk" : 
@@ -59,7 +68,6 @@ function AtRiskContent() {
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  // Read URL query params (e.g. ?failure=UPI+Timeout or ?tab=Recovery+Ready)
   useEffect(() => {
     const failureParam = searchParams.get("failure");
     const tabParam = searchParams.get("tab");
@@ -71,7 +79,6 @@ function AtRiskContent() {
     }
   }, [searchParams]);
 
-  // Dynamic tab counts based on live context
   const tabCounts = useMemo(() => {
     return {
       all: cases.length,
@@ -96,7 +103,6 @@ function AtRiskContent() {
 
   const filteredCases = useMemo(() => {
     let result = apiCases.filter((c) => {
-      // Search filter
       const term = searchTerm.toLowerCase();
       const matchesSearch = 
         c.id.toLowerCase().includes(term) ||
@@ -108,12 +114,10 @@ function AtRiskContent() {
 
       if (!matchesSearch) return false;
 
-      // Failure type filter
       if (failureFilter !== "ALL" && c.failureType !== failureFilter && c.failure !== failureFilter) {
         return false;
       }
 
-      // Tab filter
       if (activeTab === "High Priority") return c.prob >= 0.7 && c.status !== "recovered";
       if (activeTab === "Recovery Ready") return c.status === "inProgress";
       if (activeTab === "Human Review") return c.status === "atRisk";
@@ -124,13 +128,12 @@ function AtRiskContent() {
       return true;
     });
 
-    // Sorting
     result.sort((a, b) => {
       if (sortBy === "expected_desc") return b.expected - a.expected;
       if (sortBy === "amount_desc") return b.amount - a.amount;
       if (sortBy === "amount_asc") return a.amount - b.amount;
       if (sortBy === "prob_desc") return b.prob - a.prob;
-      return 0; // newest
+      return 0;
     });
 
     return result;
@@ -139,6 +142,33 @@ function AtRiskContent() {
   const handleRowClick = (caseItem: Case) => {
     setSelectedCase(caseItem);
     setIsDrawerOpen(true);
+  };
+
+  const handleToggleSelectCase = (e: React.MouseEvent, caseId: string) => {
+    e.stopPropagation();
+    setSelectedCaseIds((prev) => 
+      prev.includes(caseId) ? prev.filter((id) => id !== caseId) : [...prev, caseId]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedCaseIds.length === filteredCases.length) {
+      setSelectedCaseIds([]);
+    } else {
+      setSelectedCaseIds(filteredCases.map((c) => c.id));
+    }
+  };
+
+  const handleSelectEligible = () => {
+    const eligibleIds = filteredCases
+      .filter((c) => c.status !== "recovered" && c.amount <= 1000000 && c.retryCount < 3 && c.prob >= 0.2)
+      .map((c) => c.id);
+    setSelectedCaseIds(eligibleIds);
+    toast({
+      title: "Eligible Cases Selected",
+      description: `Selected ${eligibleIds.length} policy-eligible cases for batch recovery.`,
+      type: "info",
+    });
   };
 
   const handleClearFilters = () => {
@@ -173,6 +203,12 @@ function AtRiskContent() {
       type: "success"
     });
   };
+
+  const selectedAmountAtRisk = useMemo(() => {
+    return filteredCases
+      .filter((c) => selectedCaseIds.includes(c.id))
+      .reduce((sum, c) => sum + c.amount, 0);
+  }, [filteredCases, selectedCaseIds]);
 
   return (
     <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-300 pb-16">
@@ -257,6 +293,14 @@ function AtRiskContent() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-auto">
+            {/* Multi-Selection Helpers */}
+            <button
+              onClick={handleSelectEligible}
+              className="text-xs font-semibold px-2.5 py-1.5 text-brand bg-brand/10 hover:bg-brand/20 rounded-lg transition-colors inline-flex items-center gap-1"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" /> Select Eligible
+            </button>
+
             {/* Failure Mode Filter */}
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Failure:</span>
@@ -313,6 +357,15 @@ function AtRiskContent() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
+                  <th className="py-3 px-3 text-center w-10">
+                    <input 
+                      type="checkbox"
+                      checked={selectedCaseIds.length === filteredCases.length && filteredCases.length > 0}
+                      onChange={handleToggleSelectAll}
+                      aria-label="Select all cases"
+                      className="rounded border-slate-300 text-brand focus:ring-brand cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3 px-4 sm:px-6">Case & ID</th>
                   <th className="py-3 px-4">Customer</th>
                   <th className="py-3 px-4">Failure Reason</th>
@@ -324,52 +377,66 @@ function AtRiskContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
-                {filteredCases.map((row) => (
-                  <tr 
-                    key={row.id} 
-                    onClick={() => handleRowClick(row)}
-                    className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors group cursor-pointer"
-                  >
-                    <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-slate-900 dark:text-text-primary group-hover:text-brand transition-colors">
-                      <div className="flex items-center gap-1.5">
-                        {row.id}
-                        <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-brand" />
-                      </div>
-                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                        {row.paymentId}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-text-primary">
-                      {row.customer}
-                      <div className="text-[10px] text-slate-400 font-normal mt-0.5">
-                        {row.paymentMethod}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-600 dark:text-text-secondary max-w-xs">
-                      <div className="font-semibold text-slate-900 dark:text-text-primary">
-                        {row.failure}
-                      </div>
-                      <div className="text-[11px] text-slate-500 dark:text-text-muted truncate mt-0.5">
-                        {row.failureReason}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-text-primary tabular-nums text-right">
-                      {formatCurrency(row.amount)}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <ProbabilityMeter probability={row.prob} />
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 tabular-nums text-right">
-                      {formatCurrency(row.expected)}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <StatusBadge status={row.status} size="sm" />
-                    </td>
-                    <td className="py-3.5 px-4 sm:px-6 text-right text-slate-400 dark:text-text-muted whitespace-nowrap">
-                      {row.age}
-                    </td>
-                  </tr>
-                ))}
+                {filteredCases.map((row) => {
+                  const isSelected = selectedCaseIds.includes(row.id);
+                  return (
+                    <tr 
+                      key={row.id} 
+                      onClick={() => handleRowClick(row)}
+                      className={`hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors group cursor-pointer ${
+                        isSelected ? "bg-brand/5 dark:bg-brand/10" : ""
+                      }`}
+                    >
+                      <td className="py-3.5 px-3 text-center" onClick={(e) => handleToggleSelectCase(e, row.id)}>
+                        <input 
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          aria-label={`Select case ${row.id}`}
+                          className="rounded border-slate-300 text-brand focus:ring-brand cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-slate-900 dark:text-text-primary group-hover:text-brand transition-colors">
+                        <div className="flex items-center gap-1.5">
+                          {row.id}
+                          <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-brand" />
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          {row.paymentId}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-text-primary">
+                        {row.customer}
+                        <div className="text-[10px] text-slate-400 font-normal mt-0.5">
+                          {row.paymentMethod}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600 dark:text-text-secondary max-w-xs">
+                        <div className="font-semibold text-slate-900 dark:text-text-primary">
+                          {row.failure}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-text-muted truncate mt-0.5">
+                          {row.failureReason}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-text-primary tabular-nums text-right">
+                        {formatCurrency(row.amount)}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <ProbabilityMeter probability={row.prob} />
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 tabular-nums text-right">
+                        {formatCurrency(row.expected)}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <StatusBadge status={row.status} size="sm" />
+                      </td>
+                      <td className="py-3.5 px-4 sm:px-6 text-right text-slate-400 dark:text-text-muted whitespace-nowrap">
+                        {row.age}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -388,11 +455,47 @@ function AtRiskContent() {
 
       </div>
 
+      {/* Floating Action Bar when cases are selected */}
+      {selectedCaseIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-4 border border-slate-700 animate-in slide-in-from-bottom duration-200">
+          <div className="text-xs">
+            <span className="font-bold text-emerald-400">{selectedCaseIds.length} Cases Selected</span>
+            <span className="text-slate-400 ml-2">({formatCurrency(selectedAmountAtRisk)} at risk)</span>
+          </div>
+
+          <div className="h-4 w-px bg-slate-700" />
+
+          <button
+            onClick={() => setIsBatchDrawerOpen(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand hover:bg-brand-hover text-white text-xs font-bold rounded-lg shadow transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Batch Intelligence & Authorize
+          </button>
+
+          <button
+            onClick={() => setSelectedCaseIds([])}
+            className="text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            Deselect All
+          </button>
+        </div>
+      )}
+
       {/* Case Quick Slide-Over Drawer */}
       <CaseDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         caseItem={selectedCase}
+      />
+
+      {/* Batch Recovery Orchestration Drawer */}
+      <BatchRecoveryDrawer
+        isOpen={isBatchDrawerOpen}
+        onClose={() => setIsBatchDrawerOpen(false)}
+        selectedCaseIds={selectedCaseIds}
+        onBatchExecuted={() => {
+          setSelectedCaseIds([]);
+        }}
       />
 
     </div>

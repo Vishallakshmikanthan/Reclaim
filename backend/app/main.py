@@ -30,7 +30,7 @@ def ready():
 
 @app.get("/api/v1/cases",response_model=CaseListResponse)
 def list_cases(status:CaseStatus|None=None,failure_type:FailureType|None=None,priority:str|None=None,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),svc:Services=Depends(get_services)):
-    items,total=svc.repo.list_cases(status,failure_type,priority,page,page_size); return CaseListResponse(items=items,page=page,page_size=page_size,total=total)
+    items,total=svc.repo.list_cases(status,failure_type,priority,page=page,page_size=page_size); return CaseListResponse(items=items,page=page,page_size=page_size,total=total)
 @app.post("/api/v1/cases",response_model=CaseResponse,status_code=201)
 def create_case(payload:CaseCreateRequest,svc:Services=Depends(get_services)):
     try: result=svc.repo.create_case(payload); svc.audit("CASE_CREATED",case_id=payload.id); return result
@@ -59,6 +59,64 @@ async def razorpay_webhook(request:Request,x_razorpay_signature:str|None=Header(
 def case_audit(case_id:str,page:int=Query(1,ge=1),page_size:int=Query(100,ge=1,le=200),svc:Services=Depends(get_services)):
     svc.case(case_id);items,total=svc.repo.events(case_id=case_id,page=page,page_size=page_size);return AuditEventListResponse(items=items,total=total)
 
+# ============================================================
+# STEP 20 RECOVERY QUEUE & BATCH ORCHESTRATION ENDPOINTS
+# ============================================================
+
+@app.get("/api/v1/recovery/queue",response_model=RecoveryQueueResponse)
+def recovery_queue(
+    status:CaseStatus|None=None,
+    failure_type:FailureType|None=None,
+    priority:str|None=None,
+    min_amount:int|None=None,
+    max_amount:int|None=None,
+    eligible_only:bool=Query(False),
+    page:int=Query(1,ge=1),
+    page_size:int=Query(25,ge=1,le=200),
+    svc:Services=Depends(get_services)
+):
+    return svc.get_recovery_queue(
+        status=status,
+        failure_type=failure_type,
+        priority=priority,
+        min_amount=min_amount,
+        max_amount=max_amount,
+        eligible_only=eligible_only,
+        page=page,
+        page_size=page_size
+    )
+
+@app.post("/api/v1/recovery/batches/preview",response_model=BatchPreviewResponse)
+def preview_recovery_batch(payload:BatchPreviewRequest,svc:Services=Depends(get_services)):
+    return svc.preview_batch(payload)
+
+@app.post("/api/v1/recovery/batches",response_model=BatchExecutionResponse,status_code=201)
+def execute_recovery_batch(
+    payload:BatchExecutionRequest,
+    idempotency_key:str=Header(...,alias="Idempotency-Key"),
+    svc:Services=Depends(get_services)
+):
+    try:
+        return svc.execute_batch(payload, idempotency_key=idempotency_key)
+    except IntegrityError:
+        svc.repo.session.rollback()
+        existing = svc.repo.get_batch_by_idempotency_key(idempotency_key)
+        if existing:
+            return svc.get_batch(existing.id)
+        raise DuplicateActionError("Duplicate batch execution detected.")
+
+@app.get("/api/v1/recovery/batches",response_model=list[BatchExecutionResponse])
+def list_batches(page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),svc:Services=Depends(get_services)):
+    batches, _ = svc.repo.list_batches(page=page, page_size=page_size)
+    return [svc.get_batch(b.id) for b in batches]
+
+@app.get("/api/v1/recovery/batches/{batch_id}",response_model=BatchExecutionResponse)
+def get_batch(batch_id:str,svc:Services=Depends(get_services)):
+    return svc.get_batch(batch_id)
+
+@app.post("/api/v1/recovery/batches/{batch_id}/cancel",response_model=BatchExecutionResponse)
+def cancel_batch(batch_id:str,svc:Services=Depends(get_services)):
+    return svc.cancel_batch(batch_id)
 
 @app.get("/api/v1/policies/current",response_model=PolicyResponse)
 def policy(svc:Services=Depends(get_services)): return svc.policy()

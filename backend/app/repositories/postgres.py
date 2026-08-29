@@ -22,6 +22,11 @@ class PostgresRepositories:
         row=self.session.scalar(select(CaseModel).where(CaseModel.id==case_id,CaseModel.merchant_id==self.merchant_id).with_for_update())
         return self.to_case(row) if row else None
 
+    def get_cases_by_ids(self, case_ids: list[str]) -> list[Case]:
+        if not case_ids: return []
+        rows = self.session.scalars(select(CaseModel).where(CaseModel.merchant_id==self.merchant_id, CaseModel.id.in_(case_ids))).all()
+        return [self.to_case(x) for x in rows]
+
     def get_evaluation_cases(self):
         from ..schemas import Case, FailureType, PaymentMethod, CaseStatus
         return [
@@ -29,14 +34,19 @@ class PostgresRepositories:
             Case(id="eval_2", payment_id="pay_e2", order_id="ord_e2", customer_id="cust_e2", customer="Eval 2", customer_email="e2@test.com", customer_phone="999", amount=250000, payment_method=PaymentMethod.credit_card, failure_type=FailureType.card_decline, failure_reason="Decline", prob=0.6, expected=150000, status=CaseStatus.at_risk, demo_scenario="EVAL")
         ]
 
-    def list_cases(self,status=None,failure_type=None,priority=None,page=1,page_size=25):
+    def list_cases(self,status=None,failure_type=None,priority=None,min_amount=None,max_amount=None,page=1,page_size=25):
         q=select(CaseModel).where(CaseModel.merchant_id==self.merchant_id)
+        if min_amount is not None or max_amount is not None:
+            q=q.join(PaymentModel, CaseModel.payment_id==PaymentModel.id)
+            if min_amount is not None: q=q.where(PaymentModel.amount_minor >= min_amount)
+            if max_amount is not None: q=q.where(PaymentModel.amount_minor <= max_amount)
         if status: q=q.where(CaseModel.status==_val(status))
         if failure_type: q=q.where(CaseModel.failure_type==_val(failure_type))
         if priority: q=q.where(CaseModel.priority==priority)
         total=self.session.scalar(select(func.count()).select_from(q.subquery())) or 0
         rows=self.session.scalars(q.order_by(CaseModel.created_at.desc()).offset((page-1)*page_size).limit(page_size)).all()
         return [self.to_case(x) for x in rows], total
+
     def create_case(self, case):
         self.ensure_merchant(); payload=case.model_dump(mode="json")
         if not self.session.get(PaymentModel, case.payment_id):
@@ -135,6 +145,36 @@ class PostgresRepositories:
             processed=True
         ))
         self.session.flush()
+
+    def get_batch_by_idempotency_key(self, key: str):
+        return self.session.scalar(select(RecoveryBatchModel).where(RecoveryBatchModel.merchant_id==self.merchant_id, RecoveryBatchModel.idempotency_key==key))
+
+    def get_batch(self, batch_id: str):
+        return self.session.scalar(select(RecoveryBatchModel).where(RecoveryBatchModel.merchant_id==self.merchant_id, RecoveryBatchModel.id==batch_id))
+
+    def create_batch(self, batch: RecoveryBatchModel, items: list[RecoveryBatchItemModel]):
+        self.ensure_merchant()
+        self.session.add(batch)
+        self.session.flush()
+        for it in items:
+            self.session.add(it)
+        self.session.flush()
+        return batch
+
+    def save_batch(self, batch: RecoveryBatchModel):
+        self.session.flush()
+
+    def save_batch_item(self, item: RecoveryBatchItemModel):
+        self.session.flush()
+
+    def get_batch_items(self, batch_id: str) -> list[RecoveryBatchItemModel]:
+        return list(self.session.scalars(select(RecoveryBatchItemModel).where(RecoveryBatchItemModel.merchant_id==self.merchant_id, RecoveryBatchItemModel.batch_id==batch_id).order_by(RecoveryBatchItemModel.created_at)).all())
+
+    def list_batches(self, page=1, page_size=25):
+        q = select(RecoveryBatchModel).where(RecoveryBatchModel.merchant_id==self.merchant_id)
+        total = self.session.scalar(select(func.count()).select_from(q.subquery())) or 0
+        rows = self.session.scalars(q.order_by(RecoveryBatchModel.created_at.desc()).offset((page-1)*page_size).limit(page_size)).all()
+        return list(rows), total
 
     def audit(self,event): self.session.add(AuditEventModel(id=event.event_id,merchant_id=self.merchant_id,event_type=event.event_type,case_id=event.case_id,campaign_id=event.campaign_id,policy_version=event.policy_version,actor=event.actor,timestamp=event.timestamp,metadata_json=event.metadata)); self.session.flush(); return event
     def events(self,case_id=None,campaign_id=None,page=1,page_size=100):

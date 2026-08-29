@@ -403,6 +403,16 @@ def test_ai_audit_trail_and_telemetry():
 
 def test_stale_recommendation_protection():
     """If policy changes after recommendation, execution enforces the new policy."""
+    client.put("/api/v1/policies/current", json={
+        "configuration": {
+            "max_retries": 3,
+            "min_recovery_probability": 0.2,
+            "max_autonomous_amount": 1000000,
+            "max_contacts_24h": 2,
+            "max_risk_score": 0.6
+        },
+        "created_by": "test_setup"
+    })
     cid, _ = create_case(amount=400000)
     
     # Policy v1 permits 1,000,000 paise

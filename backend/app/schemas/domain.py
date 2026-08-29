@@ -6,36 +6,166 @@ from pydantic import BaseModel, ConfigDict, Field
 
 def now() -> datetime: return datetime.now(timezone.utc)
 def ident(prefix: str) -> str: return f"{prefix}_{uuid4().hex[:12]}"
-class CaseStatus(str, Enum): at_risk="atRisk"; in_progress="inProgress"; recovered="recovered"; escalated="escalated"; stopped="stopped"; failed="failed"; blocked="blocked"; executing="executing"; pending="pending"
-class FailureType(str, Enum): upi_timeout="UPI Timeout"; card_decline="Card Decline"; insufficient_funds="Insufficient Funds"; bank_downtime="Bank Downtime"; network_drop="Network Drop"; checkout_abandonment="Checkout Abandonment"; subscription_failure="Subscription Failure"; overdue_invoice="Overdue Invoice"; fraud_signal="Fraud Signal"
-class PaymentMethod(str, Enum): upi="UPI"; credit_card="Credit Card"; debit_card="Debit Card"; netbanking="Netbanking"; wallet="Wallet"; subscription_mandate="Subscription Mandate"
-class RecoveryChannel(str, Enum): gateway_retry="gateway_retry"; sms_link="sms_link"; whatsapp_link="whatsapp_link"; human_escalation="human_escalation"; no_action="no_action"
-class Strategy(str, Enum): retry_payment="retry_payment"; payment_link="payment_link"; customer_reminder="customer_reminder"; subscription_retry="subscription_retry"; human_escalation="human_escalation"; no_action="no_action"
-class ActionStatus(str, Enum): approved="approved"; executed="executed"; verification_pending="verification_pending"; verified="verified"; failed="failed"; timeout="timeout"; unknown="unknown"; blocked="blocked"
-class CampaignStatus(str, Enum): draft="DRAFT"; ready="READY"; running="RUNNING"; paused="PAUSED"; completed="COMPLETED"; failed="FAILED"
-class CommunicationChannel(str, Enum): in_app="in_app"; email="email"; sms="sms"; whatsapp="whatsapp"
-class Merchant(BaseModel): id: str; name: str; email: str | None = None
-class Payment(BaseModel): payment_id: str; order_id: str; amount: int = Field(gt=0); currency: str = Field(default="INR", min_length=3, max_length=3); method: PaymentMethod; failure_reason: str; created_at: datetime = Field(default_factory=now)
+
+class CaseStatus(str, Enum):
+    at_risk = "atRisk"
+    in_progress = "inProgress"
+    recovered = "recovered"
+    escalated = "escalated"
+    stopped = "stopped"
+    failed = "failed"
+    blocked = "blocked"
+    executing = "executing"
+    pending = "pending"
+
+class FailureType(str, Enum):
+    upi_timeout = "UPI Timeout"
+    card_decline = "Card Decline"
+    insufficient_funds = "Insufficient Funds"
+    bank_downtime = "Bank Downtime"
+    network_drop = "Network Drop"
+    checkout_abandonment = "Checkout Abandonment"
+    subscription_failure = "Subscription Failure"
+    overdue_invoice = "Overdue Invoice"
+    fraud_signal = "Fraud Signal"
+
+class PaymentMethod(str, Enum):
+    upi = "UPI"
+    credit_card = "Credit Card"
+    debit_card = "Debit Card"
+    netbanking = "Netbanking"
+    wallet = "Wallet"
+    subscription_mandate = "Subscription Mandate"
+
+class RecoveryChannel(str, Enum):
+    gateway_retry = "gateway_retry"
+    sms_link = "sms_link"
+    whatsapp_link = "whatsapp_link"
+    human_escalation = "human_escalation"
+    no_action = "no_action"
+
+class Strategy(str, Enum):
+    retry_payment = "retry_payment"
+    payment_link = "payment_link"
+    customer_reminder = "customer_reminder"
+    subscription_retry = "subscription_retry"
+    human_escalation = "human_escalation"
+    no_action = "no_action"
+
+class ActionStatus(str, Enum):
+    approved = "approved"
+    executed = "executed"
+    verification_pending = "verification_pending"
+    verified = "verified"
+    failed = "failed"
+    timeout = "timeout"
+    unknown = "unknown"
+    blocked = "blocked"
+
+class CampaignStatus(str, Enum):
+    draft = "DRAFT"
+    ready = "READY"
+    running = "RUNNING"
+    paused = "PAUSED"
+    completed = "COMPLETED"
+    failed = "FAILED"
+
+class RecoveryBatchStatus(str, Enum):
+    preview = "PREVIEW"
+    authorized = "AUTHORIZED"
+    running = "RUNNING"
+    completed = "COMPLETED"
+    partially_completed = "PARTIALLY_COMPLETED"
+    failed = "FAILED"
+    cancelled = "CANCELLED"
+
+class PriorityTier(str, Enum):
+    critical = "Critical"
+    high = "High"
+    medium = "Medium"
+    low = "Low"
+
+class CommunicationChannel(str, Enum):
+    in_app = "in_app"
+    email = "email"
+    sms = "sms"
+    whatsapp = "whatsapp"
+
+class Merchant(BaseModel):
+    id: str
+    name: str
+    email: str | None = None
+
+class Payment(BaseModel):
+    payment_id: str
+    order_id: str
+    amount: int = Field(gt=0)
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    method: PaymentMethod
+    failure_reason: str
+    created_at: datetime = Field(default_factory=now)
+
 class Case(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
-    id: str = Field(default_factory=lambda: ident("case")); payment_id: str; order_id: str; customer_id: str; customer: str; customer_email: str; customer_phone: str
-    amount: int = Field(gt=0, description="Integer minor units (paise)"); payment_method: PaymentMethod; failure_type: FailureType; failure_reason: str; prob: float = Field(ge=0, le=1); expected: int = Field(ge=0); status: CaseStatus = CaseStatus.at_risk; age: str = "0 min"; created_at: datetime = Field(default_factory=now); updated_at: datetime | None = None; last_attempt_at: datetime | None = None; resolved_at: datetime | None = None; retry_count: int = Field(default=0, ge=0, le=10); max_retries: int = Field(default=3, ge=0, le=10); contact_count_24h: int = Field(default=0, ge=0); max_contacts_24h: int = Field(default=2, ge=1); risk_score: float = Field(default=0, ge=0, le=1); strategy: str = ""; bank: str | None = None; demo_scenario: str = "STANDARD"; recovered_amount: int = Field(default=0, ge=0); customer_message: str | None = None
-
+    id: str = Field(default_factory=lambda: ident("case"))
+    payment_id: str
+    order_id: str
+    customer_id: str
+    customer: str
+    customer_email: str
+    customer_phone: str
+    amount: int = Field(gt=0, description="Integer minor units (paise)")
+    payment_method: PaymentMethod
+    failure_type: FailureType
+    failure_reason: str
+    prob: float = Field(ge=0, le=1)
+    expected: int = Field(ge=0)
+    status: CaseStatus = CaseStatus.at_risk
+    age: str = "0 min"
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime | None = None
+    last_attempt_at: datetime | None = None
+    resolved_at: datetime | None = None
+    retry_count: int = Field(default=0, ge=0, le=10)
+    max_retries: int = Field(default=3, ge=0, le=10)
+    contact_count_24h: int = Field(default=0, ge=0)
+    max_contacts_24h: int = Field(default=2, ge=1)
+    risk_score: float = Field(default=0, ge=0, le=1)
+    strategy: str = ""
+    bank: str | None = None
+    demo_scenario: str = "STANDARD"
+    recovered_amount: int = Field(default=0, ge=0)
+    customer_message: str | None = None
 
 class CaseCreateRequest(Case): pass
 class CaseUpdateRequest(BaseModel): status: CaseStatus | None = None
 CaseResponse = Case
 class CaseListResponse(BaseModel): items: list[Case]; page: int; page_size: int; total: int
-class PolicyConfiguration(BaseModel): max_retries: int = Field(default=3, ge=0, le=10); min_recovery_probability: float = Field(default=.2, ge=0, le=1); max_autonomous_amount: int = Field(default=1_000_000, gt=0); max_contacts_24h: int = Field(default=2, ge=1, le=10); max_risk_score: float = Field(default=.6, ge=0, le=1)
-class PolicyVersion(BaseModel): version: str; created_at: datetime = Field(default_factory=now); created_by: str; configuration: PolicyConfiguration; active: bool
+
+class PolicyConfiguration(BaseModel):
+    max_retries: int = Field(default=3, ge=0, le=10)
+    min_recovery_probability: float = Field(default=.2, ge=0, le=1)
+    max_autonomous_amount: int = Field(default=1_000_000, gt=0)
+    max_contacts_24h: int = Field(default=2, ge=1, le=10)
+    max_risk_score: float = Field(default=.6, ge=0, le=1)
+
+class PolicyVersion(BaseModel):
+    version: str
+    created_at: datetime = Field(default_factory=now)
+    created_by: str
+    configuration: PolicyConfiguration
+    active: bool
+
 class Policy(BaseModel): current: PolicyVersion
 PolicyResponse = PolicyVersion
 PolicyVersionResponse = PolicyVersion
 class PolicyUpdateRequest(BaseModel): configuration: PolicyConfiguration; created_by: str = Field(default="system", min_length=1)
+
 from .ai import *
 
 class PolicyValidationRequest(BaseModel): case_id: str
 class PolicyValidationResponse(BaseModel): allowed: bool; blocked_rules: list[str]; summary: str; policy_version: str
+
 class RecoveryDecision(BaseModel):
     case_id: str
     strategy: Strategy
@@ -125,3 +255,123 @@ class DashboardMetrics(BaseModel):
     recovery_actions: int = 0
 
 DashboardMetricsResponse = DashboardMetrics
+
+# ============================================================
+# RECOVERY QUEUE & BATCH ORCHESTRATION SCHEMAS (STEP 20)
+# ============================================================
+
+class QueueItem(BaseModel):
+    case_id: str
+    payment_id: str
+    customer_id: str
+    customer: str
+    amount: int = Field(gt=0, description="paise")
+    currency: str = "INR"
+    payment_method: str
+    failure_type: str
+    failure_reason: str
+    age: str
+    retry_count: int
+    contact_count_24h: int
+    status: CaseStatus
+    priority_score: int = Field(ge=0, le=100, description="0-100 deterministic priority score")
+    priority_tier: str = Field(default="Medium", description="Critical, High, Medium, Low")
+    priority_reasons: list[str] = Field(default_factory=list)
+    expected_recovery_minor: int = Field(ge=0)
+    policy_allowed: bool = True
+    policy_blocked_rules: list[str] = Field(default_factory=list)
+    policy_summary: str = "Recovery authorized."
+    recommended_intervention: str = "RETRY_PAYMENT"
+    strategy: str = "retry_payment"
+    decision_source: DecisionSource = DecisionSource.deterministic_fallback
+    ai_diagnosis: str | None = None
+
+class RecoveryQueueSummary(BaseModel):
+    total_at_risk_minor: int = 0
+    total_expected_recovery_minor: int = 0
+    eligible_count: int = 0
+    blocked_count: int = 0
+
+class RecoveryQueueResponse(BaseModel):
+    items: list[QueueItem]
+    page: int
+    page_size: int
+    total: int
+    summary: RecoveryQueueSummary
+
+class BatchPreviewRequest(BaseModel):
+    case_ids: list[str] | None = None
+    status: CaseStatus | None = None
+    failure_type: FailureType | None = None
+    priority: str | None = None
+    min_amount: int | None = None
+    max_amount: int | None = None
+    eligible_only: bool = False
+    max_batch_size: int = Field(default=50, ge=1, le=100)
+    max_monetary_exposure_minor: int | None = None
+
+class BatchPreviewResponse(BaseModel):
+    preview_id: str = Field(default_factory=lambda: ident("preview"))
+    selected_count: int
+    total_revenue_at_risk_minor: int
+    estimated_recoverable_minor: int
+    eligible_count: int
+    eligible_revenue_minor: int
+    blocked_count: int
+    blocked_revenue_minor: int
+    manual_review_count: int
+    recommended_interventions: dict[str, int] = Field(default_factory=dict)
+    cases: list[QueueItem]
+    ai_analysis: AIBatchAnalysis
+
+class BatchExecutionRequest(BaseModel):
+    case_ids: list[str] | None = None
+    status: CaseStatus | None = None
+    failure_type: FailureType | None = None
+    priority: str | None = None
+    min_amount: int | None = None
+    max_amount: int | None = None
+    eligible_only: bool = False
+    max_batch_size: int = Field(default=50, ge=1, le=100)
+    max_monetary_exposure_minor: int | None = None
+    scenario: str | None = None
+
+class BatchItemOutcome(BaseModel):
+    case_id: str
+    amount: int
+    status: str
+    priority_score: int
+    priority_tier: str
+    strategy: str
+    action_id: str | None = None
+    verification_status: str | None = None
+    policy_allowed: bool = True
+    blocked_rules: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+class BatchExecutionResponse(BaseModel):
+    batch_id: str
+    status: RecoveryBatchStatus
+    batch_size: int
+    cases_selected: int
+    cases_eligible: int
+    cases_blocked: int
+    cases_attempted: int
+    cases_recovered: int
+    cases_failed: int
+    cases_pending: int
+    total_revenue_at_risk_minor: int
+    eligible_revenue_minor: int
+    blocked_revenue_minor: int
+    attempted_recovery_minor: int
+    recovered_revenue_minor: int
+    failed_recovery_minor: int
+    pending_recovery_minor: int
+    recovery_rate: float
+    policy_block_rate: float
+    ai_fallback_count: int
+    communication_count: int
+    items: list[BatchItemOutcome]
+    ai_analysis: AIBatchAnalysis | None = None
+    created_at: datetime = Field(default_factory=now)
+    completed_at: datetime | None = None

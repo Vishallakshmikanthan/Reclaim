@@ -7,10 +7,13 @@ from typing import Any
 import httpx
 from ..core.errors import AppError
 from ..schemas.ai import (
+    AIBatchAnalysis,
     AIStructuredRecommendation,
     AlternativeIntervention,
+    DecisionSource,
     EvidenceItem,
     InterventionEnum,
+    SanitizedBatchContext,
     SanitizedRecoveryContext,
 )
 from ..schemas.domain import Case, PolicyVersion
@@ -76,6 +79,25 @@ REQUIRED JSON OUTPUT FORMAT:
 }
 """
 
+NEMOTRON_BATCH_SYSTEM_PROMPT = """You are the recovery intelligence component of RECLAIM, an enterprise revenue recovery platform.
+Your role is to analyze aggregate, sanitized batch metrics of at-risk transactions and provide high-level recovery insights.
+
+CRITICAL INVARIANTS:
+1. You do NOT execute transactions, move money, or authorize batch runs.
+2. You must rely ONLY on the aggregate metrics provided. Do NOT invent geographic patterns, customer details, or facts not in context.
+3. Return strictly valid JSON with no markdown or preamble.
+
+REQUIRED JSON OUTPUT FORMAT:
+{
+  "summary": "High-level summary of the at-risk batch and failure patterns",
+  "dominant_failure_patterns": ["Pattern 1", "Pattern 2"],
+  "recommended_strategy": "High-level strategy across the batch",
+  "priority_reason": "Explanation of why the selected cases are prioritized",
+  "risks": ["Risk 1", "Risk 2"],
+  "do_not_do": ["Guardrail 1", "Guardrail 2"]
+}
+"""
+
 class ContextSanitizer:
     """Strict data minimization and prompt injection defense sanitizer.
     Exposes only whitelisted fields necessary for recovery reasoning.
@@ -116,6 +138,53 @@ class ContextSanitizer:
             case_priority="Critical" if case.amount > 500000 else "High" if case.prob > 0.5 else "Medium",
             merchant_policy_summary=policy_summary,
             customer_message=customer_msg,
+        )
+
+    @staticmethod
+    def sanitize_batch(cases: list[Case], policy: PolicyVersion) -> SanitizedBatchContext:
+        total_amount = sum(c.amount for c in cases)
+        failure_dist = {}
+        retry_dist = {}
+        priority_dist = {}
+        amount_buckets = {"< 1k": 0, "1k-10k": 0, "10k-50k": 0, "> 50k": 0}
+
+        for c in cases:
+            f_val = c.failure_type.value if hasattr(c.failure_type, "value") else str(c.failure_type)
+            failure_dist[f_val] = failure_dist.get(f_val, 0) + 1
+            retry_dist[str(c.retry_count)] = retry_dist.get(str(c.retry_count), 0) + 1
+            
+            p_val = "Critical" if c.amount > 500000 else "High" if c.prob > 0.5 else "Medium"
+            priority_dist[p_val] = priority_dist.get(p_val, 0) + 1
+
+            amt_rupees = c.amount / 100
+            if amt_rupees < 1000:
+                amount_buckets["< 1k"] += 1
+            elif amt_rupees <= 10000:
+                amount_buckets["1k-10k"] += 1
+            elif amt_rupees <= 50000:
+                amount_buckets["10k-50k"] += 1
+            else:
+                amount_buckets["> 50k"] += 1
+
+        config = policy.configuration
+        policy_summary = {
+            "max_retries": config.max_retries,
+            "max_contacts_24h": config.max_contacts_24h,
+            "max_autonomous_amount_minor": config.max_autonomous_amount,
+            "min_recovery_probability": config.min_recovery_probability,
+            "max_risk_score": config.max_risk_score,
+            "policy_version": policy.version,
+        }
+
+        return SanitizedBatchContext(
+            total_cases=len(cases),
+            total_amount_minor=total_amount,
+            failure_type_distribution=failure_dist,
+            retry_distribution=retry_dist,
+            priority_distribution=priority_dist,
+            amount_buckets=amount_buckets,
+            policy_summary=policy_summary,
+            currency="INR"
         )
 
 class NemotronClient:
@@ -203,6 +272,74 @@ class NemotronClient:
             logger.warning(f"Failed to parse Nemotron JSON response: {e}")
             raise AIValidationFailure(f"Malformed JSON in Nemotron output: {str(e)}")
 
+    def complete_batch(self, context: SanitizedBatchContext) -> dict[str, Any]:
+        url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        user_content = (
+            f"Please analyze these aggregate batch recovery metrics and provide high-level recovery insights:\n\n"
+            f"{context.model_dump_json(indent=2)}\n\n"
+            f"Respond ONLY with a JSON object matching the required schema."
+        )
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": NEMOTRON_BATCH_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            "temperature": 0.1,
+            "top_p": 0.95,
+            "max_tokens": 1024,
+        }
+
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.post(url, headers=headers, json=payload)
+                
+                if response.status_code == 401 or response.status_code == 403:
+                    raise AIAuthError("NVIDIA API authentication failed. Check credentials.")
+                if response.status_code == 429:
+                    raise AIRateLimitError("NVIDIA API rate limit exceeded.")
+                if response.status_code >= 500:
+                    raise AIProviderError(f"NVIDIA API server error: {response.status_code}")
+                
+                response.raise_for_status()
+                data = response.json()
+        except httpx.TimeoutException:
+            raise AITimeoutError(f"NVIDIA API request timed out after {self.timeout_seconds}s.")
+        except (AIAuthError, AIRateLimitError, AITimeoutError, AIProviderError):
+            raise
+        except Exception as e:
+            raise AIProviderError(f"NVIDIA API connection failure: {str(e)}")
+
+        choices = data.get("choices", [])
+        if not choices:
+            raise AIValidationFailure("NVIDIA API returned empty choices list.")
+        
+        raw_text = choices[0].get("message", {}).get("content", "").strip()
+        if not raw_text:
+            raise AIValidationFailure("NVIDIA API returned empty response message content.")
+
+        cleaned_text = raw_text
+        if "```" in cleaned_text:
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned_text)
+            if match:
+                cleaned_text = match.group(1).strip()
+
+        try:
+            parsed = json.loads(cleaned_text)
+            if not isinstance(parsed, dict):
+                raise ValueError("Parsed JSON is not an object.")
+            return parsed
+        except Exception as e:
+            logger.warning(f"Failed to parse Nemotron batch JSON response: {e}")
+            raise AIValidationFailure(f"Malformed JSON in Nemotron batch output: {str(e)}")
+
 class AIRecoveryProvider(ABC):
     @abstractmethod
     def generate_recommendation(
@@ -210,6 +347,14 @@ class AIRecoveryProvider(ABC):
         context: SanitizedRecoveryContext,
         scenario: str | None = None
     ) -> AIStructuredRecommendation:
+        ...
+
+    @abstractmethod
+    def generate_batch_analysis(
+        self,
+        context: SanitizedBatchContext,
+        scenario: str | None = None
+    ) -> AIBatchAnalysis:
         ...
 
 class NemotronRecoveryProvider(AIRecoveryProvider):
@@ -236,6 +381,20 @@ class NemotronRecoveryProvider(AIRecoveryProvider):
     ) -> AIStructuredRecommendation:
         raw_dict = self.client.complete(context)
         return self._validate_and_bound(raw_dict, context)
+
+    def generate_batch_analysis(
+        self,
+        context: SanitizedBatchContext,
+        scenario: str | None = None
+    ) -> AIBatchAnalysis:
+        raw_dict = self.client.complete_batch(context)
+        try:
+            analysis = AIBatchAnalysis.model_validate(raw_dict)
+            analysis.decision_source = DecisionSource.ai_nemotron
+            analysis.model_id = self.model
+            return analysis
+        except Exception as e:
+            raise AIValidationFailure(f"Schema validation error in AI batch output: {str(e)}")
 
     def _validate_and_bound(
         self,
@@ -287,7 +446,6 @@ class MockAIRecoveryProvider(AIRecoveryProvider):
             raise AIValidationFailure("Invented evidence rejected: 'customer_credit_score_unsupplied' is not a valid context field.")
 
         if active_scenario == "OVER_LIMIT_AMOUNT":
-            # Test that bounding bounds it to case amount
             return AIStructuredRecommendation(
                 diagnosis="Transient network latency on payment switch",
                 recommended_intervention=InterventionEnum.RETRY_PAYMENT,
@@ -365,4 +523,46 @@ class MockAIRecoveryProvider(AIRecoveryProvider):
                 "Do not trigger duplicate retries if verification is pending"
             ],
             policy_dependencies=["max_retries", "max_autonomous_amount_minor", "min_recovery_probability"]
+        )
+
+    def generate_batch_analysis(
+        self,
+        context: SanitizedBatchContext,
+        scenario: str | None = None
+    ) -> AIBatchAnalysis:
+        active_scenario = scenario or "DEFAULT"
+        if active_scenario == "TIMEOUT":
+            raise AITimeoutError("Simulated Nemotron batch request timeout after 10.0s.")
+        if active_scenario == "INVALID_JSON":
+            raise AIValidationFailure("Malformed JSON returned by batch model.")
+
+        top_failures = sorted(
+            context.failure_type_distribution.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        dominant = [f"{k} ({v} cases)" for k, v in top_failures[:3]]
+
+        summary = (
+            f"Most at-risk revenue (₹{context.total_amount_minor/100:,.2f} across {context.total_cases} cases) "
+            f"is concentrated in transient provider failures under the retry threshold. "
+            f"A bounded retry strategy is recommended for the highest-value eligible cases."
+        )
+
+        return AIBatchAnalysis(
+            summary=summary,
+            dominant_failure_patterns=dominant,
+            recommended_strategy="Prioritize bounded gateway retries for transient declines; route high-risk or near-limit cases to review.",
+            priority_reason="Cases prioritized by high expected recovery yield (Amount × Probability) and 0 prior attempts.",
+            risks=[
+                "Avoid contacting customers that reached 24h communication limits",
+                "Ensure idempotent execution to prevent duplicate debits"
+            ],
+            do_not_do=[
+                "Do not retry fraud signals autonomously",
+                "Do not exceed configured max retry limit"
+            ],
+            decision_source=DecisionSource.mock_ai,
+            model_id=self.model_id,
+            latency_ms=12
         )
