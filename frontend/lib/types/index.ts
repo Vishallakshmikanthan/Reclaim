@@ -532,3 +532,125 @@ export interface BatchExecutionResponse {
   created_at: string;
   completed_at?: string | null;
 }
+
+// ============================================================
+// STEP 21 RECOVERY EFFECTIVENESS & EVIDENCE TYPES
+// ============================================================
+
+export interface RecoveryFunnelStage {
+  stage_name: string;
+  case_count: number;
+  amount_minor: number;
+  percentage_of_total_revenue: number;
+  description: string;
+}
+
+export interface InterventionPerformance {
+  intervention: string;
+  sample_size: number;
+  attempts: number;
+  successes: number;
+  failures: number;
+  pending: number;
+  revenue_attempted_minor: number;
+  revenue_recovered_minor: number;
+  recovery_rate: number;
+  recovery_rate_label: string;
+}
+
+export interface RecoveryFunnelResponse {
+  total_cases: number;
+  revenue_at_risk_minor: number;
+  eligible_cases: number;
+  eligible_revenue_minor: number;
+  policy_blocked_cases: number;
+  policy_blocked_revenue_minor: number;
+  attempted_cases: number;
+  attempted_revenue_minor: number;
+  recovered_cases: number;
+  recovered_revenue_minor: number;
+  failed_cases: number;
+  failed_revenue_minor: number;
+  pending_cases: number;
+  pending_revenue_minor: number;
+  remaining_revenue_at_risk_minor: number;
+  case_recovery_rate: number;
+  case_recovery_rate_denominator: string;
+  revenue_recovery_rate: number;
+  revenue_recovery_rate_denominator: string;
+  stages: RecoveryFunnelStage[];
+  interventions: InterventionPerformance[];
+}
+
+export interface CaseEvidenceTrace {
+  case_id: string;
+  amount_minor: number;
+  failure_type: string;
+  status: string;
+  action_id?: string | null;
+  strategy?: string | null;
+  provider?: string | null;
+  provider_order_id?: string | null;
+  provider_payment_id?: string | null;
+  provider_status?: string | null;
+  verification_status?: string | null;
+  transaction_id?: string | null;
+  recovered_amount_minor: number;
+  policy_version?: string | null;
+  policy_allowed: boolean;
+  audit_events: AuditEvent[];
+  created_at: string;
+  resolved_at?: string | null;
+}
+
+export interface BatchEvidenceTrace {
+  batch_id: string;
+  status: string;
+  created_at: string;
+  completed_at?: string | null;
+  cases_selected: number;
+  cases_eligible: number;
+  cases_blocked: number;
+  cases_attempted: number;
+  cases_recovered: number;
+  cases_failed: number;
+  cases_pending: number;
+  total_revenue_at_risk_minor: number;
+  recovered_revenue_minor: number;
+  remaining_revenue_at_risk_minor: number;
+  items: BatchItemOutcome[];
+  audit_events: AuditEvent[];
+  reconciliation_status: "RECONCILED" | "DISCREPANCY";
+}
+
+export interface EvaluationStrategyResult {
+  strategy_name: string;
+  sample_size: number;
+  cases_attempted: number;
+  cases_recovered: number;
+  cases_blocked: number;
+  cases_failed: number;
+  recovered_revenue_minor: number;
+  attempted_revenue_minor: number;
+  recovery_rate: number;
+  revenue_recovery_rate: number;
+  policy_violations: number;
+  manual_review_count: number;
+  ai_fallback_count: number;
+  average_confidence: number;
+}
+
+export interface ControlledEvaluationResponse {
+  dataset_name: string;
+  sample_size: number;
+  dataset_total_revenue_minor: number;
+  deterministic_baseline: EvaluationStrategyResult;
+  nemotron_assisted: EvaluationStrategyResult;
+  absolute_revenue_lift_minor: number;
+  relative_revenue_lift_pct: number;
+  absolute_case_lift: number;
+  policy_violations: number;
+  evaluation_mode: string;
+  limitations: string[];
+  generated_at: string;
+}

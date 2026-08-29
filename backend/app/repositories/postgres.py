@@ -66,11 +66,29 @@ class PostgresRepositories:
     def action_for_key(self,key):
         row=self.session.scalar(select(RecoveryActionModel).where(RecoveryActionModel.merchant_id==self.merchant_id,RecoveryActionModel.idempotency_key==key)); return self.to_action(row) if row else None
     def to_action(self,row):
+        st = row.status
+        if st in {"verified", "VERIFIED", "succeeded", "SUCCEEDED", "success", "SUCCESS"}:
+            status_enum = ActionStatus.succeeded
+        elif st in {"failed", "FAILED"}:
+            status_enum = ActionStatus.failed
+        elif st in {"pending", "PENDING"}:
+            status_enum = ActionStatus.pending
+        elif st in {"blocked", "BLOCKED"}:
+            status_enum = ActionStatus.blocked
+        elif st in {"ready", "READY"}:
+            status_enum = ActionStatus.ready
+        elif st in {"approved", "APPROVED"}:
+            status_enum = ActionStatus.approved
+        elif st in {"skipped", "SKIPPED"}:
+            status_enum = ActionStatus.skipped
+        else:
+            status_enum = ActionStatus.executed
+
         return RecoveryAction(
             action_id=row.id,
             case_id=row.case_id,
             strategy=row.action_type,
-            status=row.status,
+            status=status_enum,
             policy_version=row.policy_version,
             idempotency_key=row.idempotency_key,
             verification_status=row.verification_status,
@@ -196,6 +214,7 @@ class PostgresRepositories:
     def create_evaluation(self,run): self.session.add(EvaluationRunModel(id=run.run_id,merchant_id=self.merchant_id,status=run.status,metrics=run.metrics.model_dump())); self.session.flush(); return run
     def evaluations(self): return [EvaluationRun(run_id=x.id,status=x.status,created_at=x.created_at,metrics=EvaluationMetrics.model_validate(x.metrics)) for x in self.session.scalars(select(EvaluationRunModel).where(EvaluationRunModel.merchant_id==self.merchant_id)).all()]
     def evaluation(self,id): return next((x for x in self.evaluations() if x.run_id==id),None)
+    
     def dashboard_metrics(self) -> DashboardMetrics:
         cases = self.session.scalars(select(CaseModel).where(CaseModel.merchant_id==self.merchant_id)).all()
         total_cases = len(cases)
@@ -252,4 +271,265 @@ class PostgresRepositories:
             policy_blocks=policy_blocks,
             failed_payments=failed_payments,
             recovery_actions=recovery_actions
+        )
+
+    # ============================================================
+    # STEP 21 RECOVERY FUNNEL & EVIDENCE QUERIES
+    # ============================================================
+
+    def get_recovery_funnel(self, policy: PolicyVersion) -> RecoveryFunnelResponse:
+        cases = self.session.scalars(select(CaseModel).where(CaseModel.merchant_id==self.merchant_id)).all()
+        actions = self.session.scalars(select(RecoveryActionModel).where(RecoveryActionModel.merchant_id==self.merchant_id)).all()
+        
+        from ..engines.domain import PolicyEngine
+        policy_engine = PolicyEngine()
+
+        total_cases = len(cases)
+        total_at_risk_minor = sum(c.payload.get("amount", 0) for c in cases if c.payload)
+
+        eligible_cases = 0
+        eligible_revenue_minor = 0
+        policy_blocked_cases = 0
+        policy_blocked_revenue_minor = 0
+
+        attempted_cases = 0
+        attempted_revenue_minor = 0
+        recovered_cases = 0
+        recovered_revenue_minor = 0
+        failed_cases = 0
+        failed_revenue_minor = 0
+        pending_cases = 0
+        pending_revenue_minor = 0
+
+        case_action_map = {}
+        for act in actions:
+            case_action_map[act.case_id] = act
+
+        for c in cases:
+            c_obj = self.to_case(c)
+            amt = c_obj.amount
+            st = c.status
+
+            if st == CaseStatus.recovered.value:
+                recovered_cases += 1
+                recovered_revenue_minor += c.recovered_amount_minor or amt
+            else:
+                pol_res = policy_engine.validate(c_obj, policy)
+                if pol_res.allowed:
+                    eligible_cases += 1
+                    eligible_revenue_minor += amt
+                else:
+                    policy_blocked_cases += 1
+                    policy_blocked_revenue_minor += amt
+
+            if c.id in case_action_map or c.retry_count > 0 or st in {CaseStatus.in_progress.value, CaseStatus.recovered.value, CaseStatus.executing.value, CaseStatus.pending.value, CaseStatus.failed.value}:
+                attempted_cases += 1
+                attempted_revenue_minor += amt
+
+            if st in {CaseStatus.failed.value, CaseStatus.stopped.value}:
+                failed_cases += 1
+                failed_revenue_minor += amt
+            elif st in {CaseStatus.pending.value, CaseStatus.in_progress.value, CaseStatus.executing.value}:
+                pending_cases += 1
+                pending_revenue_minor += amt
+
+        remaining_revenue_at_risk_minor = max(0, total_at_risk_minor - recovered_revenue_minor)
+
+        # Explicit Denominators
+        case_recovery_rate = float(round((recovered_cases / attempted_cases * 100), 1)) if attempted_cases > 0 else 0.0
+        rev_recovery_rate = float(round((recovered_revenue_minor / attempted_revenue_minor * 100), 1)) if attempted_revenue_minor > 0 else 0.0
+
+        # Stages
+        stages = [
+            RecoveryFunnelStage(
+                stage_name="Revenue At Risk",
+                case_count=total_cases,
+                amount_minor=total_at_risk_minor,
+                percentage_of_total_revenue=100.0,
+                description="Total gross transaction declines ingested across payment channels."
+            ),
+            RecoveryFunnelStage(
+                stage_name="Policy Eligible",
+                case_count=eligible_cases,
+                amount_minor=eligible_revenue_minor,
+                percentage_of_total_revenue=float(round((eligible_revenue_minor / total_at_risk_minor * 100), 1)) if total_at_risk_minor > 0 else 0.0,
+                description="Transactions passing autonomous risk, retry, and amount limits."
+            ),
+            RecoveryFunnelStage(
+                stage_name="Recovery Attempted",
+                case_count=attempted_cases,
+                amount_minor=attempted_revenue_minor,
+                percentage_of_total_revenue=float(round((attempted_revenue_minor / total_at_risk_minor * 100), 1)) if total_at_risk_minor > 0 else 0.0,
+                description="Bounded recovery actions initiated under database row locks."
+            ),
+            RecoveryFunnelStage(
+                stage_name="Verified Recovered",
+                case_count=recovered_cases,
+                amount_minor=recovered_revenue_minor,
+                percentage_of_total_revenue=float(round((recovered_revenue_minor / total_at_risk_minor * 100), 1)) if total_at_risk_minor > 0 else 0.0,
+                description="Authoritative funds captured and cryptographically verified."
+            ),
+            RecoveryFunnelStage(
+                stage_name="Policy Blocked",
+                case_count=policy_blocked_cases,
+                amount_minor=policy_blocked_revenue_minor,
+                percentage_of_total_revenue=float(round((policy_blocked_revenue_minor / total_at_risk_minor * 100), 1)) if total_at_risk_minor > 0 else 0.0,
+                description="Transactions blocked by max retries, fraud flags, or autonomous ceilings."
+            ),
+            RecoveryFunnelStage(
+                stage_name="Provider Declined",
+                case_count=failed_cases,
+                amount_minor=failed_revenue_minor,
+                percentage_of_total_revenue=float(round((failed_revenue_minor / total_at_risk_minor * 100), 1)) if total_at_risk_minor > 0 else 0.0,
+                description="Terminal declines from banking switch or customer refusal."
+            ),
+            RecoveryFunnelStage(
+                stage_name="Pending Settlement",
+                case_count=pending_cases,
+                amount_minor=pending_revenue_minor,
+                percentage_of_total_revenue=float(round((pending_revenue_minor / total_at_risk_minor * 100), 1)) if total_at_risk_minor > 0 else 0.0,
+                description="Gateway timeouts or links awaiting webhook confirmation (uncredited)."
+            ),
+        ]
+
+        # Intervention Performance Breakdown
+        interv_stats = {}
+        for act in actions:
+            itype = act.action_type
+            if itype not in interv_stats:
+                interv_stats[itype] = {
+                    "attempts": 0, "successes": 0, "failures": 0, "pending": 0,
+                    "attempted_rev": 0, "recovered_rev": 0
+                }
+            
+            interv_stats[itype]["attempts"] += 1
+            interv_stats[itype]["attempted_rev"] += act.amount_minor
+            
+            if act.verification_status == "verified":
+                interv_stats[itype]["successes"] += 1
+                interv_stats[itype]["recovered_rev"] += act.amount_minor
+            elif act.verification_status in {"timeout", "pending", "unknown"}:
+                interv_stats[itype]["pending"] += 1
+            else:
+                interv_stats[itype]["failures"] += 1
+
+        interventions = []
+        for itype, st in interv_stats.items():
+            n = st["attempts"]
+            rate = float(round((st["successes"] / n * 100), 1)) if n > 0 else 0.0
+            interventions.append(
+                InterventionPerformance(
+                    intervention=itype,
+                    sample_size=n,
+                    attempts=n,
+                    successes=st["successes"],
+                    failures=st["failures"],
+                    pending=st["pending"],
+                    revenue_attempted_minor=st["attempted_rev"],
+                    revenue_recovered_minor=st["recovered_rev"],
+                    recovery_rate=rate,
+                    recovery_rate_label=f"recovered / attempted (n={n})"
+                )
+            )
+
+        return RecoveryFunnelResponse(
+            total_cases=total_cases,
+            revenue_at_risk_minor=total_at_risk_minor,
+            eligible_cases=eligible_cases,
+            eligible_revenue_minor=eligible_revenue_minor,
+            policy_blocked_cases=policy_blocked_cases,
+            policy_blocked_revenue_minor=policy_blocked_revenue_minor,
+            attempted_cases=attempted_cases,
+            attempted_revenue_minor=attempted_revenue_minor,
+            recovered_cases=recovered_cases,
+            recovered_revenue_minor=recovered_revenue_minor,
+            failed_cases=failed_cases,
+            failed_revenue_minor=failed_revenue_minor,
+            pending_cases=pending_cases,
+            pending_revenue_minor=pending_revenue_minor,
+            remaining_revenue_at_risk_minor=remaining_revenue_at_risk_minor,
+            case_recovery_rate=case_recovery_rate,
+            case_recovery_rate_denominator="recovered_cases / attempted_cases",
+            revenue_recovery_rate=rev_recovery_rate,
+            revenue_recovery_rate_denominator="recovered_revenue_minor / attempted_revenue_minor",
+            stages=stages,
+            interventions=interventions,
+        )
+
+    def get_case_evidence_trace(self, case_id: str) -> CaseEvidenceTrace:
+        row = self.session.scalar(select(CaseModel).where(CaseModel.id==case_id, CaseModel.merchant_id==self.merchant_id))
+        if not row:
+            raise CaseNotFoundError(f"Case {case_id} not found.")
+        c = self.to_case(row)
+        
+        act = self.session.scalar(select(RecoveryActionModel).where(RecoveryActionModel.case_id==case_id, RecoveryActionModel.merchant_id==self.merchant_id).order_by(RecoveryActionModel.started_at.desc()))
+        audit_events, _ = self.events(case_id=case_id, page_size=50)
+
+        return CaseEvidenceTrace(
+            case_id=c.id,
+            amount_minor=c.amount,
+            failure_type=c.failure_type.value if hasattr(c.failure_type, "value") else str(c.failure_type),
+            status=c.status.value if hasattr(c.status, "value") else str(c.status),
+            action_id=act.id if act else None,
+            strategy=act.action_type if act else None,
+            provider=act.provider if act else None,
+            provider_order_id=act.provider_order_id if act else None,
+            provider_payment_id=act.provider_payment_id if act else None,
+            provider_status=act.provider_status if act else None,
+            verification_status=act.verification_status if act else None,
+            transaction_id=act.transaction_id if act else None,
+            recovered_amount_minor=row.recovered_amount_minor or (c.amount if c.status == CaseStatus.recovered else 0),
+            policy_version=act.policy_version if act else None,
+            policy_allowed=True if (act or c.status == CaseStatus.recovered) else False,
+            audit_events=audit_events,
+            created_at=row.created_at,
+            resolved_at=row.resolved_at
+        )
+
+    def get_batch_evidence_trace(self, batch_id: str) -> BatchEvidenceTrace:
+        b = self.session.scalar(select(RecoveryBatchModel).where(RecoveryBatchModel.id==batch_id, RecoveryBatchModel.merchant_id==self.merchant_id))
+        if not b:
+            raise CaseNotFoundError(f"Batch {batch_id} not found.")
+        
+        items = self.get_batch_items(batch_id)
+        audit_events = list(self.session.scalars(select(AuditEventModel).where(AuditEventModel.merchant_id==self.merchant_id, AuditEventModel.metadata_json["batch_id"].as_string()==batch_id).order_by(AuditEventModel.timestamp)).all())
+        
+        item_outcomes = [
+            BatchItemOutcome(
+                case_id=it.case_id,
+                amount=it.amount_minor,
+                status=it.status,
+                priority_score=it.priority_score,
+                priority_tier=it.priority_tier,
+                strategy=it.strategy,
+                action_id=it.recovery_action_id,
+                verification_status="verified" if it.status == "RECOVERED" else it.status.lower(),
+                policy_allowed=it.policy_allowed,
+                blocked_rules=it.blocked_rules if isinstance(it.blocked_rules, list) else [],
+                error=it.execution_error,
+            )
+            for it in items
+        ]
+
+        verified_sum = sum(it.amount_minor for it in items if it.status == "RECOVERED")
+        is_reconciled = (verified_sum == b.recovered_revenue_minor)
+
+        return BatchEvidenceTrace(
+            batch_id=b.id,
+            status=b.status,
+            created_at=b.created_at,
+            completed_at=b.completed_at,
+            cases_selected=b.cases_selected,
+            cases_eligible=b.cases_eligible,
+            cases_blocked=b.cases_blocked,
+            cases_attempted=b.cases_attempted,
+            cases_recovered=b.cases_recovered,
+            cases_failed=b.cases_failed,
+            cases_pending=b.cases_pending,
+            total_revenue_at_risk_minor=b.total_revenue_at_risk_minor,
+            recovered_revenue_minor=b.recovered_revenue_minor,
+            remaining_revenue_at_risk_minor=max(0, b.total_revenue_at_risk_minor - b.recovered_revenue_minor),
+            items=item_outcomes,
+            audit_events=[AuditEvent(event_id=x.id, event_type=x.event_type, case_id=x.case_id, campaign_id=x.campaign_id, policy_version=x.policy_version, timestamp=x.timestamp, actor=x.actor, metadata=x.metadata_json) for x in audit_events],
+            reconciliation_status="RECONCILED" if is_reconciled else "DISCREPANCY"
         )

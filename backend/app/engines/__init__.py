@@ -1,4 +1,4 @@
-from .domain import DecisionEngine, PolicyEngine, PrioritizationEngine, SafetyController, MockRecoveryExecutor, MockVerificationService, MetricsEngine
+from .domain import DecisionEngine, PolicyEngine, PrioritizationEngine, SafetyController, MockRecoveryExecutor, MockVerificationService, MetricsEngine, EvaluationExperimentEngine
 from .providers import RecoveryProvider, SimulatedRecoveryProvider, RazorpayTestProvider, MockRazorpayTestProvider, ProviderExecutionResult
 from .ai_providers import (
     AIRecoveryProvider,

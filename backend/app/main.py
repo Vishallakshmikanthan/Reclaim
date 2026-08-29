@@ -17,8 +17,8 @@ app.add_exception_handler(AppError,app_error_handler)
 async def validation_error(_,exc): return JSONResponse(status_code=422,content={"error":{"code":"VALIDATION_ERROR","message":"Request validation failed.","details":{"errors":exc.errors()}}})
 @app.exception_handler(OperationalError)
 async def database_error(_,__): return JSONResponse(status_code=503,content={"error":{"code":"DATABASE_UNAVAILABLE","message":"Database is unavailable.","details":{}}})
-def get_services():
-    with repository_context() as repo: yield Services(repo)
+def get_services(x_merchant_id: str | None = Header(None, alias="X-Merchant-Id")):
+    with repository_context(merchant_id=x_merchant_id) as repo: yield Services(repo)
 @app.get("/health")
 def health(): return {"status":"ok","service":"reclaim-api","version":settings.app_version}
 @app.get("/ready")
@@ -180,8 +180,30 @@ def evaluation_detail(run_id:str,svc:Services=Depends(get_services)):
     run=svc.repo.evaluation(run_id)
     if not run:raise CaseNotFoundError("Evaluation run not found.")
     return run
+
+# ============================================================
+# STEP 21 MEASUREMENT & EVIDENCE ENDPOINTS
+# ============================================================
+
+@app.get("/api/v1/metrics/funnel", response_model=RecoveryFunnelResponse)
+def recovery_funnel(svc: Services = Depends(get_services)):
+    return svc.get_recovery_funnel()
+
+@app.get("/api/v1/cases/{case_id}/trace", response_model=CaseEvidenceTrace)
+def case_evidence_trace(case_id: str, svc: Services = Depends(get_services)):
+    return svc.get_case_evidence_trace(case_id)
+
+@app.get("/api/v1/recovery/batches/{batch_id}/trace", response_model=BatchEvidenceTrace)
+def batch_evidence_trace(batch_id: str, svc: Services = Depends(get_services)):
+    return svc.get_batch_evidence_trace(batch_id)
+
+@app.get("/api/v1/evaluation/recovery", response_model=ControlledEvaluationResponse)
+def controlled_evaluation(svc: Services = Depends(get_services)):
+    return svc.get_controlled_evaluation()
+
 @app.get("/api/v1/dashboard/metrics",response_model=DashboardMetricsResponse)
 def dashboard_metrics(svc:Services=Depends(get_services)):
     return svc.repo.dashboard_metrics()
 @app.get("/api/v1/system/health",response_model=SystemHealth)
 def system_health(): return SystemHealth(status="ok",services={name:"ready" for name in ["Decision Engine","Policy Engine","Recovery Executor","Verification","Audit","Communication","Campaign Orchestrator"]})
+

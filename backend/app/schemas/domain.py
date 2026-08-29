@@ -1,11 +1,14 @@
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-from uuid import uuid4
-from pydantic import BaseModel, ConfigDict, Field
+import uuid
+from pydantic import BaseModel, Field
 
-def now() -> datetime: return datetime.now(timezone.utc)
-def ident(prefix: str) -> str: return f"{prefix}_{uuid4().hex[:12]}"
+def now():
+    return datetime.now(timezone.utc)
+
+def ident(prefix="obj"):
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 class CaseStatus(str, Enum):
     at_risk = "atRisk"
@@ -37,13 +40,6 @@ class PaymentMethod(str, Enum):
     wallet = "Wallet"
     subscription_mandate = "Subscription Mandate"
 
-class RecoveryChannel(str, Enum):
-    gateway_retry = "gateway_retry"
-    sms_link = "sms_link"
-    whatsapp_link = "whatsapp_link"
-    human_escalation = "human_escalation"
-    no_action = "no_action"
-
 class Strategy(str, Enum):
     retry_payment = "retry_payment"
     payment_link = "payment_link"
@@ -53,22 +49,29 @@ class Strategy(str, Enum):
     no_action = "no_action"
 
 class ActionStatus(str, Enum):
-    approved = "approved"
-    executed = "executed"
-    verification_pending = "verification_pending"
-    verified = "verified"
-    failed = "failed"
-    timeout = "timeout"
-    unknown = "unknown"
-    blocked = "blocked"
+    ready = "READY"
+    approved = "APPROVED"
+    blocked = "BLOCKED"
+    executing = "EXECUTING"
+    executed = "EXECUTED"
+    succeeded = "SUCCEEDED"
+    failed = "FAILED"
+    skipped = "SKIPPED"
+    pending = "PENDING"
 
 class CampaignStatus(str, Enum):
-    draft = "DRAFT"
-    ready = "READY"
-    running = "RUNNING"
-    paused = "PAUSED"
-    completed = "COMPLETED"
-    failed = "FAILED"
+    draft = "draft"
+    scheduled = "scheduled"
+    running = "running"
+    paused = "paused"
+    completed = "completed"
+    archived = "archived"
+
+class CommunicationChannel(str, Enum):
+    whatsapp = "whatsapp"
+    sms = "sms"
+    email = "email"
+    webhook = "webhook"
 
 class RecoveryBatchStatus(str, Enum):
     preview = "PREVIEW"
@@ -85,28 +88,7 @@ class PriorityTier(str, Enum):
     medium = "Medium"
     low = "Low"
 
-class CommunicationChannel(str, Enum):
-    in_app = "in_app"
-    email = "email"
-    sms = "sms"
-    whatsapp = "whatsapp"
-
-class Merchant(BaseModel):
-    id: str
-    name: str
-    email: str | None = None
-
-class Payment(BaseModel):
-    payment_id: str
-    order_id: str
-    amount: int = Field(gt=0)
-    currency: str = Field(default="INR", min_length=3, max_length=3)
-    method: PaymentMethod
-    failure_reason: str
-    created_at: datetime = Field(default_factory=now)
-
 class Case(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
     id: str = Field(default_factory=lambda: ident("case"))
     payment_id: str
     order_id: str
@@ -185,7 +167,6 @@ class RecoveryDecision(BaseModel):
     alternatives: list[AlternativeIntervention] = Field(default_factory=list)
     do_not_do: list[str] = Field(default_factory=list)
     policy_version: str | None = None
-    recommendation_timestamp: datetime = Field(default_factory=now)
     model_id: str | None = None
     latency_ms: int | None = None
 
@@ -196,7 +177,7 @@ class RecoveryAction(BaseModel):
     action_id: str = Field(default_factory=lambda: ident("action"))
     case_id: str
     strategy: Strategy
-    status: ActionStatus
+    status: ActionStatus = ActionStatus.executed
     policy_version: str
     idempotency_key: str
     verification_status: str
@@ -375,3 +356,121 @@ class BatchExecutionResponse(BaseModel):
     ai_analysis: AIBatchAnalysis | None = None
     created_at: datetime = Field(default_factory=now)
     completed_at: datetime | None = None
+
+# ============================================================
+# STEP 21 RECOVERY EFFECTIVENESS, FUNNEL & EVIDENCE SCHEMAS
+# ============================================================
+
+class RecoveryFunnelStage(BaseModel):
+    stage_name: str
+    case_count: int
+    amount_minor: int
+    percentage_of_total_revenue: float
+    description: str
+
+class InterventionPerformance(BaseModel):
+    intervention: str
+    sample_size: int
+    attempts: int
+    successes: int
+    failures: int
+    pending: int
+    revenue_attempted_minor: int
+    revenue_recovered_minor: int
+    recovery_rate: float
+    recovery_rate_label: str
+
+class RecoveryFunnelResponse(BaseModel):
+    total_cases: int
+    revenue_at_risk_minor: int
+    eligible_cases: int
+    eligible_revenue_minor: int
+    policy_blocked_cases: int
+    policy_blocked_revenue_minor: int
+    attempted_cases: int
+    attempted_revenue_minor: int
+    recovered_cases: int
+    recovered_revenue_minor: int
+    failed_cases: int
+    failed_revenue_minor: int
+    pending_cases: int
+    pending_revenue_minor: int
+    remaining_revenue_at_risk_minor: int
+    
+    case_recovery_rate: float
+    case_recovery_rate_denominator: str = "recovered_cases / attempted_cases"
+    
+    revenue_recovery_rate: float
+    revenue_recovery_rate_denominator: str = "recovered_revenue_minor / attempted_revenue_minor"
+    
+    stages: list[RecoveryFunnelStage]
+    interventions: list[InterventionPerformance]
+
+class CaseEvidenceTrace(BaseModel):
+    case_id: str
+    amount_minor: int
+    failure_type: str
+    status: str
+    action_id: str | None = None
+    strategy: str | None = None
+    provider: str | None = None
+    provider_order_id: str | None = None
+    provider_payment_id: str | None = None
+    provider_status: str | None = None
+    verification_status: str | None = None
+    transaction_id: str | None = None
+    recovered_amount_minor: int = 0
+    policy_version: str | None = None
+    policy_allowed: bool = True
+    audit_events: list[AuditEvent] = Field(default_factory=list)
+    created_at: datetime
+    resolved_at: datetime | None = None
+
+class BatchEvidenceTrace(BaseModel):
+    batch_id: str
+    status: str
+    created_at: datetime
+    completed_at: datetime | None = None
+    cases_selected: int
+    cases_eligible: int
+    cases_blocked: int
+    cases_attempted: int
+    cases_recovered: int
+    cases_failed: int
+    cases_pending: int
+    total_revenue_at_risk_minor: int
+    recovered_revenue_minor: int
+    remaining_revenue_at_risk_minor: int
+    items: list[BatchItemOutcome]
+    audit_events: list[AuditEvent]
+    reconciliation_status: str
+
+class EvaluationStrategyResult(BaseModel):
+    strategy_name: str
+    sample_size: int
+    cases_attempted: int
+    cases_recovered: int
+    cases_blocked: int
+    cases_failed: int
+    recovered_revenue_minor: int
+    attempted_revenue_minor: int
+    recovery_rate: float
+    revenue_recovery_rate: float
+    policy_violations: int
+    manual_review_count: int
+    ai_fallback_count: int = 0
+    average_confidence: float = 0.0
+
+class ControlledEvaluationResponse(BaseModel):
+    dataset_name: str
+    sample_size: int
+    dataset_total_revenue_minor: int
+    deterministic_baseline: EvaluationStrategyResult
+    nemotron_assisted: EvaluationStrategyResult
+    absolute_revenue_lift_minor: int
+    relative_revenue_lift_pct: float
+    absolute_case_lift: int
+    policy_violations: int = 0
+    evaluation_mode: str = "OFFLINE_HELD_OUT_SYNTHETIC"
+    limitations: list[str]
+    generated_at: datetime = Field(default_factory=now)

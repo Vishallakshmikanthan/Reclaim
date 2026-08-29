@@ -1033,6 +1033,23 @@ class Services:
             self.audit("BATCH_CANCELLED", metadata={"batch_id": batch_id})
         return self.get_batch(batch_id)
 
+    # ============================================================
+    # STEP 21 MEASUREMENT & EVIDENCE SERVICES
+    # ============================================================
+
+    def get_recovery_funnel(self) -> RecoveryFunnelResponse:
+        return self.repo.get_recovery_funnel(self.policy())
+
+    def get_case_evidence_trace(self, case_id: str) -> CaseEvidenceTrace:
+        return self.repo.get_case_evidence_trace(case_id)
+
+    def get_batch_evidence_trace(self, batch_id: str) -> BatchEvidenceTrace:
+        return self.repo.get_batch_evidence_trace(batch_id)
+
+    def get_controlled_evaluation(self) -> ControlledEvaluationResponse:
+        eval_engine = EvaluationExperimentEngine()
+        return eval_engine.run_controlled_experiment(self.policy())
+
 class CaseService(Services): pass
 class RecoveryService(Services): pass
 class PolicyService(Services): pass
