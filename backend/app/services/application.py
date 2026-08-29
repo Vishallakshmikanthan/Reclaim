@@ -23,7 +23,11 @@ class Services:
         if not key: raise RecoveryExecutionError("Idempotency-Key header is required.")
         existing = self.repo.action_for_key(key)
         if existing: return existing
-        case, policy = self.case(case_id), self.validate(case_id)
+        case = self.repo.get_case_for_update(case_id)
+        if not case: raise CaseNotFoundError()
+        existing_again = self.repo.action_for_key(key)
+        if existing_again: return existing_again
+        policy = self.validate(case_id)
         if not policy.allowed: raise PolicyValidationError(details={"blocked_rules": policy.blocked_rules})
         if self.repo.action_exists_for_case(case_id): raise DuplicateActionError()
         decision = self.decision_engine.decide(case, policy); strategy = request.strategy or decision.strategy

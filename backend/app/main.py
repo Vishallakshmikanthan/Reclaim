@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, OperationalError
 from .core.config import get_settings
-from .core.errors import AppError, app_error_handler, CaseNotFoundError, ServiceUnavailableError, DuplicateActionError
+from .core.errors import AppError, app_error_handler, CaseNotFoundError, ServiceUnavailableError, DuplicateActionError, PolicyValidationError
 from .repositories.factory import repository_context
 from .schemas import *
 from .services.application import Services
@@ -42,7 +42,7 @@ def decision(case_id:str,svc:Services=Depends(get_services)): return svc.decisio
 @app.post("/api/v1/cases/{case_id}/recovery/actions",response_model=RecoveryActionResponse)
 def action(case_id:str,payload:RecoveryActionRequest,idempotency_key:str=Header(...,alias="Idempotency-Key"),svc:Services=Depends(get_services)):
     try: return svc.action(case_id,payload,idempotency_key)
-    except IntegrityError: existing=svc.repo.action_for_key(idempotency_key); return existing if existing else (_ for _ in ()).throw(DuplicateActionError())
+    except IntegrityError: svc.repo.session.rollback(); existing=svc.repo.action_for_key(idempotency_key); return existing if existing else (_ for _ in ()).throw(DuplicateActionError())
 @app.get("/api/v1/cases/{case_id}/audit",response_model=AuditEventListResponse)
 def case_audit(case_id:str,page:int=Query(1,ge=1),page_size:int=Query(100,ge=1,le=200),svc:Services=Depends(get_services)):
     svc.case(case_id);items,total=svc.repo.events(case_id=case_id,page=page,page_size=page_size);return AuditEventListResponse(items=items,total=total)
@@ -84,7 +84,14 @@ def campaign_audit(campaign_id:str,svc:Services=Depends(get_services)):
 
 @app.post("/api/v1/communications",response_model=CommunicationResponse,status_code=201)
 def communicate(payload:CommunicationRequest,svc:Services=Depends(get_services)):
-    svc.case(payload.case_id); c=Communication(**payload.model_dump());svc.repo.create_communication(c);svc.audit("COMMUNICATION_SENT_SIMULATED",case_id=c.case_id,campaign_id=c.campaign_id,metadata={"communication_id":c.id});return c
+    case = svc.repo.get_case_for_update(payload.case_id)
+    if not case: raise CaseNotFoundError()
+    policy = svc.policy()
+    if case.contact_count_24h >= policy.configuration.max_contacts_24h:
+        raise PolicyValidationError(details={"blocked_rules": ["Customer contact limit reached"]})
+    case.contact_count_24h += 1
+    svc.repo.save_case(case)
+    c=Communication(**payload.model_dump());svc.repo.create_communication(c);svc.audit("COMMUNICATION_SENT_SIMULATED",case_id=c.case_id,campaign_id=c.campaign_id,metadata={"communication_id":c.id});return c
 @app.get("/api/v1/communications",response_model=list[CommunicationResponse])
 def communications(svc:Services=Depends(get_services)):return svc.repo.communications()
 @app.get("/api/v1/communications/{communication_id}",response_model=CommunicationResponse)
@@ -94,7 +101,7 @@ def communication(communication_id:str,svc:Services=Depends(get_services)):
     return c
 @app.post("/api/v1/evaluation/runs",response_model=EvaluationRun,status_code=201)
 def evaluation(svc:Services=Depends(get_services)):
-    cases,_=svc.repo.list_cases(page_size=100);run=EvaluationRun(metrics=svc.metrics.run(cases));svc.repo.create_evaluation(run);svc.audit("EVALUATION_RUN_COMPLETED",metadata={"run_id":run.run_id});return run
+    cases=svc.repo.get_evaluation_cases();run=EvaluationRun(metrics=svc.metrics.run(cases));svc.repo.create_evaluation(run);svc.audit("EVALUATION_RUN_COMPLETED",metadata={"run_id":run.run_id});return run
 @app.get("/api/v1/evaluation/runs",response_model=list[EvaluationRun])
 def evaluations(svc:Services=Depends(get_services)):return svc.repo.evaluations()
 @app.get("/api/v1/evaluation/runs/{run_id}",response_model=EvaluationRun)

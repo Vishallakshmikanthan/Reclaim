@@ -17,6 +17,18 @@ class PostgresRepositories:
     def to_case(self, row): return Case.model_validate(row.payload)
     def get_case(self, case_id):
         row=self.session.scalar(select(CaseModel).where(CaseModel.id==case_id,CaseModel.merchant_id==self.merchant_id)); return self.to_case(row) if row else None
+
+    def get_case_for_update(self, case_id):
+        row=self.session.scalar(select(CaseModel).where(CaseModel.id==case_id,CaseModel.merchant_id==self.merchant_id).with_for_update())
+        return self.to_case(row) if row else None
+
+    def get_evaluation_cases(self):
+        from ..schemas import Case, FailureType, PaymentMethod, CaseStatus
+        return [
+            Case(id="eval_1", payment_id="pay_e1", order_id="ord_e1", customer_id="cust_e1", customer="Eval 1", customer_email="e1@test.com", customer_phone="999", amount=150000, payment_method=PaymentMethod.upi, failure_type=FailureType.upi_timeout, failure_reason="Timeout", prob=0.85, expected=127500, status=CaseStatus.at_risk, demo_scenario="EVAL"),
+            Case(id="eval_2", payment_id="pay_e2", order_id="ord_e2", customer_id="cust_e2", customer="Eval 2", customer_email="e2@test.com", customer_phone="999", amount=250000, payment_method=PaymentMethod.credit_card, failure_type=FailureType.card_decline, failure_reason="Decline", prob=0.6, expected=150000, status=CaseStatus.at_risk, demo_scenario="EVAL")
+        ]
+
     def list_cases(self,status=None,failure_type=None,priority=None,page=1,page_size=25):
         q=select(CaseModel).where(CaseModel.merchant_id==self.merchant_id)
         if status: q=q.where(CaseModel.status==_val(status))
