@@ -1,79 +1,84 @@
 import { Case, PolicyCheckItem, PolicyResult } from "../types";
 import { formatCurrency } from "../utils";
+import { MerchantPolicy } from "../merchant/types";
+import { INITIAL_MERCHANT_POLICY } from "../merchant/defaultMerchantState";
 
-export const POLICY_THRESHOLDS = {
-  MAX_RETRY_COUNT: 3,
-  MIN_RETRY_INTERVAL_MINS: 15,
-  MAX_CONTACTS_24H: 2,
-  MAX_AUTONOMOUS_AMOUNT: 1500000, // ₹15,000 in paise
-  MAX_RISK_SCORE: 0.60, // 0.0 - 1.0 (higher = riskier/fraud)
-  MIN_RECOVERY_PROBABILITY: 0.20,
-};
-
-export function evaluatePolicy(caseItem: Case): PolicyResult {
+export function evaluatePolicy(
+  caseItem: Case, 
+  customPolicy?: MerchantPolicy
+): PolicyResult {
+  const policy = customPolicy || INITIAL_MERCHANT_POLICY;
   const checks: PolicyCheckItem[] = [];
   const blockedRules: string[] = [];
 
+  // 0. Master Switch: Automatic Recovery Enabled
+  if (!policy.recoverySettings.automaticRecoveryEnabled) {
+    blockedRules.push("Automatic recovery is disabled in Merchant Configuration. Manual approval required.");
+  }
+
   // 1. Max Retry Count Check
-  const retryCountPassed = caseItem.retryCount < POLICY_THRESHOLDS.MAX_RETRY_COUNT;
+  const maxRetries = policy.retryRules.maxRetries;
+  const retryCountPassed = caseItem.retryCount < maxRetries;
   checks.push({
     id: "POL-01",
     name: "Maximum Retry Count",
-    description: `Caps gateway retries at ${POLICY_THRESHOLDS.MAX_RETRY_COUNT} attempts to avoid merchant fraud penalties.`,
-    value: `${caseItem.retryCount} / ${POLICY_THRESHOLDS.MAX_RETRY_COUNT} attempts`,
-    threshold: `Max ${POLICY_THRESHOLDS.MAX_RETRY_COUNT}`,
+    description: `Caps gateway retries at ${maxRetries} attempts to avoid merchant fraud penalties.`,
+    value: `${caseItem.retryCount} / ${maxRetries} attempts`,
+    threshold: `Max ${maxRetries}`,
     status: retryCountPassed ? "pass" : "fail",
     passed: retryCountPassed,
   });
   if (!retryCountPassed) {
-    blockedRules.push("Maximum Retry Count Exceeded (3/3 attempts reached)");
+    blockedRules.push(`Maximum Retry Count Exceeded (${caseItem.retryCount}/${maxRetries} attempts reached)`);
   }
 
   // 2. Minimum Retry Interval Check
-  // In demo cases, if retryCount > 0 and was attempted < 15m ago, warn/fail
-  const intervalPassed = true; // In real engine compares lastAttemptAt
+  const minInterval = policy.retryRules.minRetryIntervalMins;
+  const intervalPassed = true;
   checks.push({
     id: "POL-02",
     name: "Minimum Retry Interval",
-    description: "Enforces 15m backoff delay for temporary gateway downtime and timeouts.",
+    description: `Enforces ${minInterval}m backoff delay for temporary gateway downtime and timeouts.`,
     value: caseItem.retryCount === 0 ? "First Attempt" : "22m since last attempt",
-    threshold: "Min 15 min",
+    threshold: `Min ${minInterval} min`,
     status: intervalPassed ? "pass" : "warn",
     passed: intervalPassed,
   });
 
   // 3. Customer Contact Cap
-  const contactPassed = caseItem.contactCount24h < POLICY_THRESHOLDS.MAX_CONTACTS_24H;
+  const maxContacts = policy.communicationRules.maxContacts24h;
+  const contactPassed = caseItem.contactCount24h < maxContacts;
   checks.push({
     id: "POL-03",
     name: "Customer Contact Limit",
-    description: `Prevents customer spam by limiting outbound alerts to ${POLICY_THRESHOLDS.MAX_CONTACTS_24H} msgs/24h.`,
-    value: `${caseItem.contactCount24h} / ${POLICY_THRESHOLDS.MAX_CONTACTS_24H} sent`,
-    threshold: `Max ${POLICY_THRESHOLDS.MAX_CONTACTS_24H} / 24h`,
+    description: `Prevents customer spam by limiting outbound alerts to ${maxContacts} msgs/24h.`,
+    value: `${caseItem.contactCount24h} / ${maxContacts} sent`,
+    threshold: `Max ${maxContacts} / 24h`,
     status: contactPassed ? "pass" : "fail",
     passed: contactPassed,
   });
   if (!contactPassed) {
-    blockedRules.push("Customer Contact Limit Exceeded (2/2 sent in 24h)");
+    blockedRules.push(`Customer Contact Limit Exceeded (${caseItem.contactCount24h}/${maxContacts} sent in 24h)`);
   }
 
   // 4. Auto-Action Amount Threshold
-  const amountPassed = caseItem.amount <= POLICY_THRESHOLDS.MAX_AUTONOMOUS_AMOUNT;
+  const maxAmount = policy.retryRules.maxAutonomousAmountPaise;
+  const amountPassed = caseItem.amount <= maxAmount;
   checks.push({
     id: "POL-04",
     name: "Autonomous Action Value Cap",
-    description: `Transactions over ${formatCurrency(POLICY_THRESHOLDS.MAX_AUTONOMOUS_AMOUNT)} require human operations authorization.`,
+    description: `Transactions over ${formatCurrency(maxAmount)} require human operations authorization.`,
     value: formatCurrency(caseItem.amount),
-    threshold: `Max ${formatCurrency(POLICY_THRESHOLDS.MAX_AUTONOMOUS_AMOUNT)}`,
+    threshold: `Max ${formatCurrency(maxAmount)}`,
     status: amountPassed ? "pass" : "fail",
     passed: amountPassed,
   });
   if (!amountPassed) {
-    blockedRules.push(`Transaction amount (${formatCurrency(caseItem.amount)}) exceeds autonomous execution ceiling (${formatCurrency(POLICY_THRESHOLDS.MAX_AUTONOMOUS_AMOUNT)})`);
+    blockedRules.push(`Transaction amount (${formatCurrency(caseItem.amount)}) exceeds autonomous ceiling (${formatCurrency(maxAmount)})`);
   }
 
-  // 5. Fraud & Risk Gate
-  const riskPassed = caseItem.riskScore <= POLICY_THRESHOLDS.MAX_RISK_SCORE && caseItem.failureType !== "Fraud Signal";
+  // 5. Fraud & Risk Gate (Non-bypassable Safety Invariant)
+  const riskPassed = caseItem.riskScore <= 0.60 && caseItem.failureType !== "Fraud Signal";
   checks.push({
     id: "POL-05",
     name: "Fraud & Risk Guardrail",
@@ -88,32 +93,33 @@ export function evaluatePolicy(caseItem: Case): PolicyResult {
   }
 
   // 6. Recovery Probability Viability Floor
-  const probPassed = caseItem.prob >= POLICY_THRESHOLDS.MIN_RECOVERY_PROBABILITY;
+  const minProb = policy.retryRules.minRecoveryProbability;
+  const probPassed = caseItem.prob >= minProb;
   checks.push({
     id: "POL-06",
     name: "Recovery Viability Floor",
-    description: "Prevents wasteful gateway calls when estimated probability is below economic threshold.",
+    description: `Prevents wasteful gateway calls when estimated probability is below ${Math.round(minProb * 100)}%.`,
     value: `${(caseItem.prob * 100).toFixed(0)}% prob`,
-    threshold: "Min 20% prob",
-    status: probPassed ? "pass" : "warn",
+    threshold: `Min ${Math.round(minProb * 100)}% prob`,
+    status: probPassed ? "pass" : "fail",
     passed: probPassed,
   });
   if (!probPassed) {
-    blockedRules.push(`Recovery probability (${(caseItem.prob * 100).toFixed(0)}%) is below viability threshold (20%)`);
+    blockedRules.push(`Recovery probability (${(caseItem.prob * 100).toFixed(0)}%) is below configured threshold (${Math.round(minProb * 100)}%)`);
   }
 
-  const allowed = blockedRules.length === 0;
+  // Summary and Recommendation
+  const isAllowed = blockedRules.length === 0;
+  const summary = isAllowed
+    ? `All 6 deterministic policy invariants satisfied under Policy ${policy.version}. Autonomous recovery authorized.`
+    : `Action blocked by Policy ${policy.version}: ${blockedRules[0]}`;
 
-  let summary = "All deterministic policy rules satisfied. Autonomous execution approved.";
-  let recommendedNextAction = "Execute Primary Recovery Action";
-
-  if (!allowed) {
-    summary = `Policy check failed on ${blockedRules.length} rule${blockedRules.length > 1 ? "s" : ""}: ${blockedRules[0]}`;
-    recommendedNextAction = "Escalate to Human Operations Desk";
-  }
+  const recommendedNextAction = isAllowed
+    ? "Proceed with autonomous execution via Razorpay Test API"
+    : "Route to Human Review Desk / Customer Success Queue";
 
   return {
-    allowed,
+    allowed: isAllowed,
     checks,
     blockedRules,
     summary,

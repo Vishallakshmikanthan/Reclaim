@@ -42,6 +42,17 @@ import {
 } from "../resilience/serviceHealthManager";
 import { evaluateSafetyBeforeExecution } from "../resilience/safetyController";
 import { FAILURE_SCENARIOS } from "../resilience/failureScenarios";
+import { 
+  MerchantProfile, 
+  MerchantPolicy, 
+  PolicyVersionHistoryItem, 
+  MerchantRole 
+} from "../merchant/types";
+import { 
+  INITIAL_MERCHANT_PROFILE, 
+  INITIAL_MERCHANT_POLICY, 
+  INITIAL_POLICY_HISTORY 
+} from "../merchant/defaultMerchantState";
 
 interface ExecuteOptions {
   forceScenario?: "success" | "timeout" | "block" | "failure" | "fallback_success" | "fallback_blocked";
@@ -58,6 +69,15 @@ interface ReclaimContextType {
   
   // Real-time deterministic metrics
   metrics: OperationalMetrics;
+
+  // Merchant Profile & Policy Management
+  merchantProfile: MerchantProfile;
+  activePolicy: MerchantPolicy;
+  policyHistory: PolicyVersionHistoryItem[];
+  updateMerchantProfile: (updates: Partial<MerchantProfile>) => void;
+  updatePolicy: (updates: Partial<MerchantPolicy>, changeSummary: string) => void;
+  rollbackPolicy: (targetVersion: string) => void;
+  setMerchantRole: (role: MerchantRole) => void;
 
   // Decision, Strategy & Policy getters
   getCaseById: (id: string) => Case | undefined;
@@ -98,6 +118,9 @@ const STORAGE_AUDIT_KEY = "reclaim_v1_audit";
 const STORAGE_CAMPAIGNS_KEY = "reclaim_v1_campaigns";
 const STORAGE_COMMUNICATIONS_KEY = "reclaim_v1_communications";
 const STORAGE_SERVICES_KEY = "reclaim_v1_service_health";
+const STORAGE_PROFILE_KEY = "reclaim_v1_merchant_profile";
+const STORAGE_POLICY_KEY = "reclaim_v1_merchant_policy";
+const STORAGE_POLICY_HISTORY_KEY = "reclaim_v1_policy_history";
 
 export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
@@ -172,9 +195,49 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     return INITIAL_SERVICE_HEALTH;
   });
 
+  const [merchantProfile, setMerchantProfile] = useState<MerchantProfile>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_PROFILE_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse merchant profile from localStorage:", e);
+        }
+      }
+    }
+    return INITIAL_MERCHANT_PROFILE;
+  });
+
+  const [activePolicy, setActivePolicy] = useState<MerchantPolicy>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_POLICY_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse active policy from localStorage:", e);
+        }
+      }
+    }
+    return INITIAL_MERCHANT_POLICY;
+  });
+
+  const [policyHistory, setPolicyHistory] = useState<PolicyVersionHistoryItem[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_POLICY_HISTORY_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse policy history from localStorage:", e);
+        }
+      }
+    }
+    return INITIAL_POLICY_HISTORY;
+  });
+
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
-  
-  // Execution state & progress tracking per case
   const [executionProgressMap, setExecutionProgressMap] = useState<Record<string, ExecutionProgress>>({});
 
   // Synchronize with LocalStorage
@@ -207,6 +270,24 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(STORAGE_SERVICES_KEY, JSON.stringify(serviceHealth));
     }
   }, [serviceHealth]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(merchantProfile));
+    }
+  }, [merchantProfile]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_POLICY_KEY, JSON.stringify(activePolicy));
+    }
+  }, [activePolicy]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_POLICY_HISTORY_KEY, JSON.stringify(policyHistory));
+    }
+  }, [policyHistory]);
 
   // Deterministic metrics derived strictly from the dataset
   const metrics = useMemo(() => calculateOperationalMetrics(cases), [cases]);
@@ -242,8 +323,8 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const getCasePolicy = useCallback((caseItem: Case): PolicyResult => {
-    return evaluatePolicy(caseItem);
-  }, []);
+    return evaluatePolicy(caseItem, activePolicy);
+  }, [activePolicy]);
 
   const getCaseExecutionProgress = useCallback((id: string): ExecutionProgress => {
     return executionProgressMap[id] || { caseId: id, step: "idle" };
@@ -256,6 +337,154 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const getCaseMoneyImpact = useCallback((caseItem: Case) => {
     return calculateMoneyImpact(caseItem);
   }, []);
+
+  // Merchant Profile & Policy Actions
+  const updateMerchantProfile = useCallback((updates: Partial<MerchantProfile>) => {
+    setMerchantProfile((prev) => ({
+      ...prev,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    }));
+    toast({
+      title: "Merchant Profile Updated",
+      description: "Saved business preferences.",
+      type: "success",
+    });
+  }, [toast]);
+
+  const setMerchantRole = useCallback((role: MerchantRole) => {
+    setMerchantProfile((prev) => ({ ...prev, currentRole: role }));
+    toast({
+      title: `Role Switched to ${role.replace("_", " ")}`,
+      description: role === "VIEWER" ? "Read-only mode active." : "Operational capabilities updated.",
+      type: "info",
+    });
+  }, [toast]);
+
+  const updatePolicy = useCallback((updates: Partial<MerchantPolicy>, changeSummary: string) => {
+    if (merchantProfile.currentRole === "VIEWER") {
+      toast({
+        title: "Permission Denied",
+        description: "Viewer role cannot modify merchant policy configurations.",
+        type: "error",
+      });
+      return;
+    }
+
+    const currentVerNum = parseInt(activePolicy.version.replace("v", "")) || 1;
+    const nextVersion = `v${currentVerNum + 1}`;
+    const nowStr = `${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} ${new Date().toLocaleTimeString("en-IN", { hour12: false })} IST`;
+
+    const updatedPolicy: MerchantPolicy = {
+      ...activePolicy,
+      ...updates,
+      version: nextVersion,
+      isActive: true,
+      updatedAt: new Date().toISOString(),
+      updatedBy: merchantProfile.currentRole === "MERCHANT_ADMIN" ? "Merchant Admin" : "Operator",
+      changeSummary,
+      recoverySettings: { ...activePolicy.recoverySettings, ...updates.recoverySettings },
+      retryRules: { ...activePolicy.retryRules, ...updates.retryRules },
+      paymentLinkRules: { ...activePolicy.paymentLinkRules, ...updates.paymentLinkRules },
+      communicationRules: { ...activePolicy.communicationRules, ...updates.communicationRules },
+      escalationRules: { ...activePolicy.escalationRules, ...updates.escalationRules },
+      notificationPreferences: { ...activePolicy.notificationPreferences, ...updates.notificationPreferences },
+    };
+
+    setActivePolicy(updatedPolicy);
+
+    const historyItem: PolicyVersionHistoryItem = {
+      version: nextVersion,
+      timestamp: nowStr,
+      actor: merchantProfile.currentRole === "MERCHANT_ADMIN" ? "Merchant Admin" : "Operator",
+      summary: changeSummary,
+      policySnapshot: updatedPolicy,
+    };
+
+    setPolicyHistory((prev) => [historyItem, ...prev]);
+
+    addAuditEvent({
+      layer: "LAYER 3",
+      source: "POLICY_ENGINE",
+      event: "POLICY_UPDATED",
+      case: nextVersion,
+      desc: `Policy updated from ${activePolicy.version} to ${nextVersion}: ${changeSummary}`,
+      status: "INFO",
+      details: {
+        policyRule: "CONFIG_CHANGE",
+        actualValue: nextVersion,
+        reason: changeSummary,
+      },
+    });
+
+    toast({
+      title: `Policy Updated to ${nextVersion} 🛡️`,
+      description: changeSummary,
+      type: "success",
+    });
+  }, [activePolicy, merchantProfile.currentRole, addAuditEvent, toast]);
+
+  const rollbackPolicy = useCallback((targetVersion: string) => {
+    if (merchantProfile.currentRole !== "MERCHANT_ADMIN") {
+      toast({
+        title: "Permission Denied",
+        description: "Only Merchant Admin can execute policy rollbacks.",
+        type: "error",
+      });
+      return;
+    }
+
+    const targetHistory = policyHistory.find((h) => h.version === targetVersion);
+    if (!targetHistory) {
+      toast({ title: "Version Not Found", description: `Policy ${targetVersion} does not exist in history.`, type: "error" });
+      return;
+    }
+
+    const currentVerNum = parseInt(activePolicy.version.replace("v", "")) || 1;
+    const nextVersion = `v${currentVerNum + 1}`;
+    const nowStr = `${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} ${new Date().toLocaleTimeString("en-IN", { hour12: false })} IST`;
+
+    const rolledBackPolicy: MerchantPolicy = {
+      ...targetHistory.policySnapshot,
+      version: nextVersion,
+      isActive: true,
+      updatedAt: new Date().toISOString(),
+      updatedBy: "Merchant Admin",
+      changeSummary: `Rollback: Restored configuration state from ${targetVersion}`,
+    };
+
+    setActivePolicy(rolledBackPolicy);
+
+    const historyItem: PolicyVersionHistoryItem = {
+      version: nextVersion,
+      timestamp: nowStr,
+      actor: "Merchant Admin",
+      summary: `Rollback to ${targetVersion} snapshot`,
+      policySnapshot: rolledBackPolicy,
+    };
+
+    setPolicyHistory((prev) => [historyItem, ...prev]);
+
+    addAuditEvent({
+      layer: "LAYER 3",
+      source: "POLICY_ENGINE",
+      event: "POLICY_ROLLBACK",
+      case: nextVersion,
+      desc: `Policy rolled back to ${targetVersion} snapshot. Activated as ${nextVersion}.`,
+      status: "INFO",
+      details: {
+        policyRule: "ROLLBACK",
+        actualValue: nextVersion,
+        reason: `Restored ${targetVersion}`,
+      },
+    });
+
+    toast({
+      title: `Policy Rolled Back to ${targetVersion}`,
+      description: `Activated as ${nextVersion}. Historical ledger preserved.`,
+      type: "info",
+    });
+  }, [activePolicy, policyHistory, merchantProfile.currentRole, addAuditEvent, toast]);
 
   // Fault Injection & Resilience Controllers
   const injectFailure = useCallback((service: ServiceType, reason: string, severity: FailureSeverity) => {
@@ -310,9 +539,19 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   }, [addAuditEvent, toast]);
 
   /**
-   * Multi-Step Intelligent Recovery Strategy Orchestrator Pipeline with Centralized Safety Controller
+   * Multi-Step Intelligent Recovery Strategy Orchestrator Pipeline with Centralized Safety Controller & Dynamic Policy
    */
   const executeRecovery = useCallback(async (caseId: string, options?: ExecuteOptions): Promise<boolean> => {
+    // Check RBAC Permissions
+    if (merchantProfile.currentRole === "VIEWER") {
+      toast({
+        title: "Permission Denied",
+        description: "Viewer role has read-only access. Cannot execute financial recovery.",
+        type: "error",
+      });
+      return false;
+    }
+
     const targetCase = cases.find((c) => c.id === caseId);
     if (!targetCase) {
       toast({ title: "Case Not Found", description: `Case ${caseId} does not exist.`, type: "error" });
@@ -352,7 +591,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     const decision = synthesizeDecision(targetCase);
     const strategy = buildRecoveryStrategy(targetCase);
-    const policy = evaluatePolicy(targetCase);
+    const policy = evaluatePolicy(targetCase, activePolicy);
     const effectiveScenario = options?.forceScenario || targetCase.demoScenario || "A_SUCCESS";
     const idempotencyKey = `rz_rec_${targetCase.id}_${Date.now()}`;
 
@@ -367,12 +606,12 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       source: "AGENT",
       event: "STRATEGY_CREATED",
       case: targetCase.id,
-      desc: `Orchestrated ${strategy.steps.length}-step recovery chain: ${strategy.primaryAction.label} → Fallback: ${strategy.fallbackActions[0]?.label || 'Human Escalation'}.`,
+      desc: `Orchestrated ${strategy.steps.length}-step recovery chain under Policy ${activePolicy.version}: ${strategy.primaryAction.label} → Fallback: ${strategy.fallbackActions[0]?.label || 'Human Escalation'}.`,
       status: "INFO",
       details: {
         strategyStep: "PRIMARY",
         amount: targetCase.amount,
-        nextAction: "Evaluate against Layer 3 Policy Guardrails",
+        nextAction: `Evaluate against Layer 3 Policy Guardrails (${activePolicy.version})`,
       },
     });
 
@@ -381,11 +620,11 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       source: "POLICY_ENGINE",
       event: "POLICY_CHECKED",
       case: targetCase.id,
-      desc: `Evaluating 6 deterministic rules for primary action: ${strategy.primaryAction.label}.`,
+      desc: `Evaluating active Policy ${activePolicy.version} for primary action: ${strategy.primaryAction.label}.`,
       status: "INFO",
       details: {
         amount: targetCase.amount,
-        policyRule: "6_INVARIANTS_CHECK",
+        policyRule: activePolicy.version,
         nextAction: "Policy approval or block",
       },
     });
@@ -399,18 +638,18 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         [caseId]: { caseId, step: "blocked", idempotencyKey }
       }));
 
-      const blockReason = policy.blockedRules[0] || "Maximum retry ceiling (3/3) exceeded.";
+      const blockReason = policy.blockedRules[0] || `Policy ${activePolicy.version} guardrail engaged.`;
 
       addAuditEvent({
         layer: "LAYER 3",
         source: "POLICY_ENGINE",
         event: "POLICY_BLOCKED",
         case: targetCase.id,
-        desc: `Action blocked: ${blockReason}. Autonomous execution prohibited.`,
+        desc: `Action blocked under Policy ${activePolicy.version}: ${blockReason}`,
         status: "BLOCKED",
         details: {
-          policyRule: policy.blockedRules[0] || "MAX_RETRY_COUNT",
-          threshold: "Max 3 attempts",
+          policyRule: activePolicy.version,
+          threshold: `Max ${activePolicy.retryRules.maxRetries} retries`,
           actualValue: `${targetCase.retryCount} retries recorded`,
           reason: blockReason,
           nextAction: "Escalate to Human Operations Desk",
@@ -453,11 +692,11 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       source: "POLICY_ENGINE",
       event: "POLICY_APPROVED",
       case: targetCase.id,
-      desc: `All 6 deterministic rules satisfied. Action authorized for ${formatCurrency(targetCase.amount)}.`,
+      desc: `All deterministic rules satisfied under Policy ${activePolicy.version}. Action authorized for ${formatCurrency(targetCase.amount)}.`,
       status: "SUCCESS",
       details: {
-        policyRule: "ALL_RULES_PASSED",
-        threshold: "6/6 Rules",
+        policyRule: activePolicy.version,
+        threshold: "All Invariants Satisfied",
         actualValue: "Approved",
         nextAction: `Dispatch ${strategy.primaryAction.label} (Layer 4)`,
       },
@@ -578,7 +817,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         source: "VERIFICATION",
         event: "RECOVERY_VERIFIED",
         case: targetCase.id,
-        desc: `Fallback recovery verified by webhook telemetry. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
+        desc: `Fallback recovery verified by webhook telemetry under Policy ${activePolicy.version}. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
         status: "SUCCESS",
       });
 
@@ -647,7 +886,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         source: "POLICY_ENGINE",
         event: "FALLBACK_BLOCKED",
         case: targetCase.id,
-        desc: `Fallback blocked: Customer contact limit exceeded (2/2 allowed contacts in 24h already reached).`,
+        desc: `Fallback blocked: Customer contact limit exceeded (${activePolicy.communicationRules.maxContacts24h}/${activePolicy.communicationRules.maxContacts24h} reached).`,
         status: "BLOCKED",
       });
 
@@ -672,7 +911,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       setCases((prev) =>
         prev.map((c) =>
           c.id === caseId
-            ? { ...c, status: "escalated", lastError: "Fallback blocked: Contact limit (2/2) reached." }
+            ? { ...c, status: "escalated", lastError: "Fallback blocked: Contact limit reached." }
             : c
         )
       );
@@ -684,7 +923,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
       toast({
         title: "Fallback Blocked by Guardrail",
-        description: "Customer contact limit reached (2/2). Prevented customer spam. Escalated.",
+        description: `Customer contact limit reached (${activePolicy.communicationRules.maxContacts24h}/${activePolicy.communicationRules.maxContacts24h}). Prevented customer spam. Escalated.`,
         type: "warning",
         duration: 5000,
       });
@@ -822,7 +1061,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       source: "VERIFICATION",
       event: "RECOVERY_VERIFIED",
       case: targetCase.id,
-      desc: `Primary recovery verified by webhook telemetry. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
+      desc: `Primary recovery verified by webhook telemetry under Policy ${activePolicy.version}. Settled ${formatCurrency(targetCase.amount)} in ledger.`,
       status: "SUCCESS",
     });
 
@@ -861,7 +1100,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     });
 
     return true;
-  }, [cases, executionProgressMap, serviceHealth, addAuditEvent, toast]);
+  }, [cases, executionProgressMap, serviceHealth, activePolicy, merchantProfile.currentRole, addAuditEvent, toast]);
 
   const escalateCase = useCallback((caseId: string, reason?: string) => {
     const targetCase = cases.find((c) => c.id === caseId);
@@ -920,7 +1159,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   }, [cases, addAuditEvent, toast]);
 
   /**
-   * Batch Campaign Execution Orchestrator with Failure Isolation
+   * Batch Campaign Execution Orchestrator with Dynamic Policy Enforcement
    */
   const runCampaignBatch = useCallback(async (campaignId: string): Promise<boolean> => {
     const campaign = campaigns.find((c) => c.id === campaignId);
@@ -962,7 +1201,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       source: "AGENT",
       event: "CASE_CREATED",
       case: campaignId,
-      desc: `Initiated batch recovery campaign: ${campaign.config.name}.`,
+      desc: `Initiated batch recovery campaign: ${campaign.config.name} under Policy ${activePolicy.version}.`,
       status: "INFO",
     });
 
@@ -993,7 +1232,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       // Small execution delay to simulate real batch cadence
       await new Promise((res) => setTimeout(res, 500));
 
-      const policy = evaluatePolicy(caseItem);
+      const policy = evaluatePolicy(caseItem, activePolicy);
 
       if (!policy.allowed) {
         policyBlockCount += 1;
@@ -1004,7 +1243,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
           timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }),
           caseId: caseItem.id,
           customerName: caseItem.customer,
-          action: "Layer 3 Policy Block",
+          action: `Layer 3 Policy Block (${activePolicy.version})`,
           status: "BLOCKED",
           amount: caseItem.amount,
           detail: `Blocked: ${policy.blockedRules[0] || "Policy guardrail failed"}. Escalated to human queue.`,
@@ -1015,7 +1254,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
           source: "POLICY_ENGINE",
           event: "POLICY_BLOCKED",
           case: caseItem.id,
-          desc: `Campaign ${campaign.config.name} blocked action for ${caseItem.customer}: ${policy.blockedRules[0]}`,
+          desc: `Campaign ${campaign.config.name} blocked action for ${caseItem.customer} under Policy ${activePolicy.version}: ${policy.blockedRules[0]}`,
           status: "BLOCKED",
         });
 
@@ -1044,7 +1283,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         content: messageContent,
         status: "DELIVERY_CONFIRMED_SIMULATED",
         contactCount: (caseItem.contactCount24h || 0) + 1,
-        maxContacts: 2,
+        maxContacts: activePolicy.communicationRules.maxContacts24h,
         policyStatus: "Approved",
         campaignId: campaign.id,
         campaignName: campaign.config.name,
@@ -1068,7 +1307,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         action: `Dispatched ${channel.toUpperCase()} & Recovered`,
         status: "SUCCESS",
         amount: caseItem.amount,
-        detail: `Captured ${formatCurrency(caseItem.amount)} via 1-click Razorpay link.`,
+        detail: `Captured ${formatCurrency(caseItem.amount)} via 1-click Razorpay link under Policy ${activePolicy.version}.`,
       });
 
       addAuditEvent({
@@ -1085,7 +1324,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         source: "VERIFICATION",
         event: "CASE_RESOLVED",
         case: caseItem.id,
-        desc: `Settled ${formatCurrency(caseItem.amount)} in ledger.`,
+        desc: `Settled ${formatCurrency(caseItem.amount)} in ledger under Policy ${activePolicy.version}.`,
         status: "SUCCESS",
       });
 
@@ -1143,7 +1382,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       source: "VERIFICATION",
       event: "CASE_RESOLVED",
       case: campaignId,
-      desc: `Campaign ${campaign.config.name} completed. Processed ${processedCount} cases, recovered ${formatCurrency(recoveredRevenuePaise)}.`,
+      desc: `Campaign ${campaign.config.name} completed under Policy ${activePolicy.version}. Processed ${processedCount} cases, recovered ${formatCurrency(recoveredRevenuePaise)}.`,
       status: "SUCCESS",
     });
 
@@ -1155,7 +1394,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     });
 
     return true;
-  }, [campaigns, cases, serviceHealth, addAuditEvent, toast]);
+  }, [campaigns, cases, serviceHealth, activePolicy, addAuditEvent, toast]);
 
   const toggleCampaignStatus = useCallback((campaignId: string) => {
     setCampaigns((prev) =>
@@ -1240,10 +1479,10 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    if ((targetCase.contactCount24h || 0) >= 2) {
+    if ((targetCase.contactCount24h || 0) >= activePolicy.communicationRules.maxContacts24h) {
       toast({
         title: "Communication Blocked by Policy",
-        description: `Customer contact limit (2/2 in 24h) reached for ${targetCase.customer}. Prevented customer spam.`,
+        description: `Customer contact limit (${activePolicy.communicationRules.maxContacts24h}/${activePolicy.communicationRules.maxContacts24h} in 24h) reached for ${targetCase.customer}. Prevented customer spam.`,
         type: "warning",
       });
       return false;
@@ -1265,7 +1504,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       content,
       status: "DELIVERY_CONFIRMED_SIMULATED",
       contactCount: (targetCase.contactCount24h || 0) + 1,
-      maxContacts: 2,
+      maxContacts: activePolicy.communicationRules.maxContacts24h,
       policyStatus: "Approved",
       createdAt: new Date().toISOString(),
       sentAt: new Date().toISOString(),
@@ -1285,7 +1524,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       source: "EXECUTOR",
       event: "ACTION_EXECUTED",
       case: targetCase.id,
-      desc: `Simulated dispatch of ${channel.toUpperCase()} message in ${language} to ${targetCase.customer}.`,
+      desc: `Simulated dispatch of ${channel.toUpperCase()} message in ${language} to ${targetCase.customer} under Policy ${activePolicy.version}.`,
       status: "INFO",
     });
 
@@ -1296,7 +1535,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     });
 
     return true;
-  }, [cases, serviceHealth, addAuditEvent, toast]);
+  }, [cases, serviceHealth, activePolicy, addAuditEvent, toast]);
 
   /**
    * Deterministic Failure Scenario Runner
@@ -1345,6 +1584,9 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     setCampaigns(INITIAL_CAMPAIGNS);
     setCommunications(INITIAL_COMMUNICATIONS);
     setServiceHealth(INITIAL_SERVICE_HEALTH);
+    setMerchantProfile(INITIAL_MERCHANT_PROFILE);
+    setActivePolicy(INITIAL_MERCHANT_POLICY);
+    setPolicyHistory(INITIAL_POLICY_HISTORY);
     setExecutionProgressMap({});
     setSelectedCaseId(null);
     if (typeof window !== "undefined") {
@@ -1353,10 +1595,13 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(STORAGE_CAMPAIGNS_KEY);
       localStorage.removeItem(STORAGE_COMMUNICATIONS_KEY);
       localStorage.removeItem(STORAGE_SERVICES_KEY);
+      localStorage.removeItem(STORAGE_PROFILE_KEY);
+      localStorage.removeItem(STORAGE_POLICY_KEY);
+      localStorage.removeItem(STORAGE_POLICY_HISTORY_KEY);
     }
     toast({
       title: "Demo State Reset",
-      description: "Restored initial cases, metrics, services, and audit ledger.",
+      description: "Restored initial cases, metrics, policy v1, and audit ledger.",
       type: "info",
     });
   }, [toast]);
@@ -1369,10 +1614,17 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         campaigns,
         communications,
         serviceHealth,
+        merchantProfile,
+        activePolicy,
+        policyHistory,
         selectedCaseId,
         setSelectedCaseId,
         selectedCase,
         metrics,
+        updateMerchantProfile,
+        updatePolicy,
+        rollbackPolicy,
+        setMerchantRole,
         getCaseById,
         getCaseDecision,
         getCaseStrategy,

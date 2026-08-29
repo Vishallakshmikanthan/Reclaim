@@ -332,7 +332,12 @@ export type AuditEventType =
   | "ESCALATION_CREATED"
   | "SERVICE_RECOVERED"
   | "CAMPAIGN_PAUSED"
-  | "CAMPAIGN_RESUMED";
+  | "CAMPAIGN_RESUMED"
+  | "POLICY_UPDATED"
+  | "POLICY_ROLLBACK"
+  | "POLICY_CREATED"
+  | "POLICY_ACTIVATED"
+  | "POLICY_DEACTIVATED";
 
 export interface AuditEventDetails {
   policyRule?: string;
