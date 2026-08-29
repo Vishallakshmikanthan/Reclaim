@@ -484,13 +484,23 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
             )}
 
             <div className="flex items-center justify-between pt-2">
-              <Link
-                href={`/cases/${currentCase.id}`}
-                onClick={onClose}
-                className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1.5"
-              >
-                Open Deep Lifecycle Workspace <ExternalLink className="w-3.5 h-3.5" />
-              </Link>
+              <div className="flex items-center gap-3">
+                <Link
+                  href={`/cases/${currentCase.id}`}
+                  onClick={onClose}
+                  className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1.5"
+                >
+                  Deep Workspace <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+                <span className="text-slate-300 dark:text-border-subtle">•</span>
+                <Link
+                  href={`/audit?case=${currentCase.id}`}
+                  onClick={onClose}
+                  className="text-xs font-semibold text-slate-600 dark:text-text-secondary hover:text-brand hover:underline inline-flex items-center gap-1"
+                >
+                  Audit Ledger <ExternalLink className="w-3 h-3" />
+                </Link>
+              </div>
               <button
                 onClick={onClose}
                 className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-text-primary transition-colors font-medium"

@@ -8,6 +8,7 @@ import {
   PolicyResult, 
   AuditEventType, 
   AuditLayer,
+  AuditLayerSource,
   ExecutionProgress
 } from "../types";
 import { INITIAL_MOCK_CASES } from "../mock-data/mockCases";
@@ -109,12 +110,15 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   // Deterministic metrics derived strictly from the dataset
   const metrics = useMemo(() => calculateOperationalMetrics(cases), [cases]);
 
-  // Audit Dispatcher
+  // Audit Dispatcher with standard ISO/IST timestamp representation
   const addAuditEvent = useCallback((event: Omit<AuditEvent, "id" | "timestamp">) => {
+    const now = new Date();
+    const formattedTimestamp = `${now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} ${now.toLocaleTimeString("en-IN", { hour12: false })} IST`;
+
     const newEvent: AuditEvent = {
       ...event,
       id: `EVT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-      timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }),
+      timestamp: formattedTimestamp,
     };
 
     setAuditEvents((prev) => [newEvent, ...prev]);
@@ -192,9 +196,16 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     addAuditEvent({
       layer: "LAYER 3",
+      source: "POLICY_ENGINE",
       event: "POLICY_CHECKED",
       case: targetCase.id,
       desc: `Evaluating 6 deterministic rules for ${decision.recommendedIntervention}.`,
+      status: "INFO",
+      details: {
+        amount: targetCase.amount,
+        policyRule: "6_INVARIANTS_CHECK",
+        nextAction: "Policy approval or block",
+      },
     });
 
     await new Promise((res) => setTimeout(res, 600));
@@ -210,16 +221,31 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
       addAuditEvent({
         layer: "LAYER 3",
+        source: "POLICY_ENGINE",
         event: "POLICY_BLOCKED",
         case: targetCase.id,
         desc: `Action blocked: ${blockReason}. Autonomous execution prohibited.`,
+        status: "BLOCKED",
+        details: {
+          policyRule: policy.blockedRules[0] || "MAX_RETRY_COUNT",
+          threshold: "Max 3 attempts",
+          actualValue: `${targetCase.retryCount} retries recorded`,
+          reason: blockReason,
+          nextAction: "Escalate to Human Operations Desk",
+        },
       });
 
       addAuditEvent({
         layer: "LAYER 5",
+        source: "VERIFICATION",
         event: "CASE_ESCALATED",
         case: targetCase.id,
         desc: `Transferred to human operations desk due to policy block: ${blockReason}`,
+        status: "BLOCKED",
+        details: {
+          reason: blockReason,
+          nextAction: "Assigned to Human Queue",
+        },
       });
 
       setCases((prev) =>
@@ -242,9 +268,17 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     addAuditEvent({
       layer: "LAYER 3",
+      source: "POLICY_ENGINE",
       event: "POLICY_APPROVED",
       case: targetCase.id,
       desc: `All 6 deterministic rules satisfied. Action authorized for ${formatCurrency(targetCase.amount)}.`,
+      status: "SUCCESS",
+      details: {
+        policyRule: "ALL_RULES_PASSED",
+        threshold: "6/6 Rules",
+        actualValue: "Approved",
+        nextAction: `Dispatch ${decision.recommendedIntervention} (Layer 4)`,
+      },
     });
 
     // --- STEP 2: LAYER 4 RAZORPAY TEST MODE EXECUTION (EXECUTING) ---
@@ -255,9 +289,18 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     addAuditEvent({
       layer: "LAYER 4",
+      source: "EXECUTOR",
       event: "ACTION_EXECUTED",
       case: targetCase.id,
       desc: `Dispatched Razorpay Test Mode ${decision.recommendedIntervention} (${targetCase.strategy}) with idempotency key ${idempotencyKey}.`,
+      status: "INFO",
+      details: {
+        gateway: "Razorpay Test Mode Gateway (v1/payments/retry)",
+        idempotencyKey,
+        amount: targetCase.amount,
+        paymentMethod: targetCase.paymentMethod,
+        customer: targetCase.customer,
+      },
     });
 
     toast({
@@ -306,16 +349,30 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
       addAuditEvent({
         layer: "LAYER 4",
+        source: "EXECUTOR",
         event: "VERIFICATION_TIMEOUT",
         case: targetCase.id,
         desc: "Gateway verification response timed out after 30s. Bounded safety: NO automatic duplicate retry.",
+        status: "TIMEOUT",
+        details: {
+          gateway: "Razorpay Test Webhook / Polling",
+          idempotencyKey,
+          reason: "Gateway response unconfirmed after 30s.",
+          nextAction: "Halt automatic retry • Escalate to human reconciliation",
+        },
       });
 
       addAuditEvent({
         layer: "LAYER 5",
+        source: "VERIFICATION",
         event: "CASE_ESCALATED",
         case: targetCase.id,
         desc: "Case escalated for manual reconciliation. Settlement status remains unconfirmed.",
+        status: "TIMEOUT",
+        details: {
+          reason: "Ambiguous gateway response.",
+          nextAction: "Route to Manual Finance Reconciliation Queue",
+        },
       });
 
       setCases((prev) =>
@@ -350,16 +407,30 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
       addAuditEvent({
         layer: "LAYER 4",
+        source: "EXECUTOR",
         event: "ACTION_FAILED",
         case: targetCase.id,
         desc: `Razorpay retry declined by issuing bank: ${verificationOutcome.message}`,
+        status: "FAILED",
+        details: {
+          gateway: "Razorpay Test Gateway",
+          idempotencyKey,
+          reason: verificationOutcome.message,
+          nextAction: "Escalate to Customer Success Desk",
+        },
       });
 
       addAuditEvent({
         layer: "LAYER 5",
+        source: "VERIFICATION",
         event: "CASE_ESCALATED",
         case: targetCase.id,
         desc: "Automated retry path exhausted. Case escalated to customer success desk.",
+        status: "FAILED",
+        details: {
+          reason: "Issuer hard decline on automated retry.",
+          nextAction: "Assigned to VIP Customer Success Desk",
+        },
       });
 
       setCases((prev) =>
@@ -401,16 +472,32 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     addAuditEvent({
       layer: "LAYER 4",
+      source: "EXECUTOR",
       event: "ACTION_SUCCEEDED",
       case: targetCase.id,
       desc: `Razorpay Test Mode captured ${formatCurrency(targetCase.amount)}. Ref: ${txnId}`,
+      status: "SUCCESS",
+      details: {
+        gateway: "Razorpay Test Mode Gateway",
+        transactionId: txnId,
+        idempotencyKey,
+        amount: targetCase.amount,
+      },
     });
 
     addAuditEvent({
       layer: "LAYER 5",
+      source: "VERIFICATION",
       event: "CASE_RESOLVED",
       case: targetCase.id,
       desc: `Settled ${formatCurrency(targetCase.amount)} in ledger. Revenue at Risk reduced.`,
+      status: "SUCCESS",
+      details: {
+        amount: targetCase.amount,
+        transactionId: txnId,
+        customer: targetCase.customer,
+        nextAction: "Case marked settled • No further action required",
+      },
     });
 
     // Update case state to RECOVERED and record settlement details
@@ -456,9 +543,15 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     addAuditEvent({
       layer: "LAYER 5",
+      source: "VERIFICATION",
       event: "CASE_ESCALATED",
       case: targetCase.id,
       desc: reason ? `Escalated: ${reason}` : "Escalated to human operations desk.",
+      status: "INFO",
+      details: {
+        reason: reason || "Manual escalation from Case Drawer",
+        nextAction: "Routed to Human Review Queue",
+      },
     });
 
     toast({
@@ -482,9 +575,15 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     addAuditEvent({
       layer: "LAYER 5",
+      source: "VERIFICATION",
       event: "CASE_STOPPED",
       case: targetCase.id,
       desc: reason ? `Stopped: ${reason}` : "Recovery stopped by operator.",
+      status: "INFO",
+      details: {
+        reason: reason || "Operator manual intervention",
+        nextAction: "Permanent stop on autonomous retry",
+      },
     });
 
     toast({

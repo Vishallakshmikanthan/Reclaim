@@ -10,9 +10,10 @@ import { Modal } from "@/components/ui/Modal";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
 import { ExecutionTimeline } from "@/components/ui/ExecutionTimeline";
+import { AuditEventDrawer } from "@/components/AuditEventDrawer";
 import { useReclaim } from "@/lib/context/ReclaimContext";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
-import { Case } from "@/lib/types";
+import { Case, AuditEvent } from "@/lib/types";
 import { 
   ArrowLeft, 
   BrainCircuit, 
@@ -66,6 +67,8 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     resetDemoData
   } = useReclaim();
   
+  const [selectedAuditEvent, setSelectedAuditEvent] = useState<AuditEvent | null>(null);
+  const [isAuditDrawerOpen, setIsAuditDrawerOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
   // Retrieve current live case
@@ -567,9 +570,10 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
 
           {/* Audit Timeline / Execution Ledger for this case */}
           <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-2 border-b border-slate-100 dark:border-border-subtle">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-brand" />
                   Case Execution Audit Trail
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
@@ -577,10 +581,10 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                 </p>
               </div>
               <Link 
-                href="/audit" 
-                className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
+                href={`/audit?case=${currentCase.id}`} 
+                className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1 self-start sm:self-auto"
               >
-                View Global Ledger <ExternalLink className="w-3 h-3" />
+                Inspect in Global Ledger ({caseAuditEvents.length} events) <ExternalLink className="w-3 h-3" />
               </Link>
             </div>
 
@@ -590,40 +594,53 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   Initial intake recorded. Awaiting recovery execution.
                 </div>
               ) : (
-                caseAuditEvents.map((evt, idx) => {
-                  const isSuccess = evt.event === "CASE_RESOLVED" || evt.event === "ACTION_SUCCEEDED";
+                caseAuditEvents.map((evt) => {
+                  const isSuccess = evt.event === "CASE_RESOLVED" || evt.event === "ACTION_SUCCEEDED" || evt.event === "POLICY_APPROVED";
                   const isBlocked = evt.event === "POLICY_BLOCKED";
                   const isTimeout = evt.event === "VERIFICATION_TIMEOUT";
+                  const isFailed = evt.event === "ACTION_FAILED";
 
                   return (
                     <div 
                       key={evt.id} 
+                      onClick={() => {
+                        setSelectedAuditEvent(evt);
+                        setIsAuditDrawerOpen(true);
+                      }}
                       className={cn(
-                        "relative pl-6 pb-4 border-l",
+                        "relative pl-6 pb-4 border-l cursor-pointer group hover:bg-slate-50/50 dark:hover:bg-surface-elevated/30 rounded-r-lg transition-colors p-1.5",
                         isSuccess ? "border-emerald-300 dark:border-emerald-800" :
                         isBlocked ? "border-rose-300 dark:border-rose-800" :
                         isTimeout ? "border-amber-300 dark:border-amber-800" :
+                        isFailed ? "border-rose-300 dark:border-rose-800" :
                         "border-slate-200 dark:border-border-subtle"
                       )}
                     >
                       <div className={cn(
-                        "absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full ring-4 ring-white dark:ring-surface",
+                        "absolute left-[-5px] top-2.5 w-2.5 h-2.5 rounded-full ring-4 ring-white dark:ring-surface",
                         isSuccess ? "bg-emerald-500" :
                         isBlocked ? "bg-rose-500" :
                         isTimeout ? "bg-amber-500" :
+                        isFailed ? "bg-rose-500" :
                         "bg-slate-400"
                       )} />
                       <div className="flex items-baseline justify-between text-xs">
                         <span className={cn(
-                          "font-semibold",
+                          "font-semibold flex items-center gap-1.5",
                           isSuccess ? "text-emerald-700 dark:text-emerald-400" :
                           isBlocked ? "text-rose-700 dark:text-rose-400" :
                           isTimeout ? "text-amber-700 dark:text-amber-400" :
+                          isFailed ? "text-rose-700 dark:text-rose-400" :
                           "text-slate-900 dark:text-text-primary"
                         )}>
-                          {evt.layer}: {evt.event}
+                          <span>{evt.layer}: {evt.event}</span>
+                          {evt.source && (
+                            <span className="text-[9px] font-bold text-slate-400 dark:text-text-muted uppercase">
+                              [{evt.source}]
+                            </span>
+                          )}
                         </span>
-                        <span className="font-mono text-slate-400 dark:text-text-muted text-[11px]">{evt.timestamp}</span>
+                        <span className="font-mono text-slate-400 dark:text-text-muted text-[10px]">{evt.timestamp}</span>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-text-secondary mt-0.5 leading-relaxed">
                         {evt.desc}
@@ -847,6 +864,13 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
           </div>
         </div>
       </Modal>
+
+      {/* Audit Event Detailed Inspection Drawer */}
+      <AuditEventDrawer
+        isOpen={isAuditDrawerOpen}
+        onClose={() => setIsAuditDrawerOpen(false)}
+        event={selectedAuditEvent}
+      />
 
     </div>
   );

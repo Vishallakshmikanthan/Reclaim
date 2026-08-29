@@ -164,6 +164,7 @@ export interface DecisionTimelineEvent {
   step: string;
   detail: string;
   layer: string;
+  source?: AuditLayerSource;
 }
 
 export interface RecoveryDecision {
@@ -217,6 +218,14 @@ export type AuditLayer =
   | "LAYER 4" 
   | "LAYER 5";
 
+export type AuditLayerSource = 
+  | "RISK_ENGINE" 
+  | "AGENT" 
+  | "POLICY_ENGINE" 
+  | "EXECUTOR" 
+  | "VERIFICATION" 
+  | "AUDIT";
+
 export type AuditEventType = 
   | "CASE_CREATED" 
   | "RISK_SCORED" 
@@ -224,7 +233,9 @@ export type AuditEventType =
   | "POLICY_CHECKED" 
   | "POLICY_APPROVED" 
   | "POLICY_BLOCKED" 
+  | "ACTION_CREATED"
   | "ACTION_EXECUTED" 
+  | "VERIFICATION_STARTED"
   | "ACTION_SUCCEEDED" 
   | "ACTION_FAILED" 
   | "VERIFICATION_TIMEOUT" 
@@ -232,14 +243,31 @@ export type AuditEventType =
   | "CASE_ESCALATED" 
   | "CASE_STOPPED";
 
+export interface AuditEventDetails {
+  policyRule?: string;
+  threshold?: string;
+  actualValue?: string;
+  idempotencyKey?: string;
+  gateway?: string;
+  transactionId?: string;
+  amount?: number;
+  customer?: string;
+  paymentMethod?: string;
+  reason?: string;
+  nextAction?: string;
+}
+
 export interface AuditEvent {
   id: string;
   timestamp: string;
   layer: AuditLayer;
+  source?: AuditLayerSource;
   event: AuditEventType;
   case: string;
   desc: string;
   latency?: string;
+  status?: "SUCCESS" | "BLOCKED" | "TIMEOUT" | "FAILED" | "INFO";
+  details?: AuditEventDetails;
 }
 
 export interface EvaluationMetric {
