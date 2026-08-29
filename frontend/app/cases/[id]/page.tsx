@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
+import { ExecutionTimeline } from "@/components/ui/ExecutionTimeline";
 import { useReclaim } from "@/lib/context/ReclaimContext";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
 import { Case } from "@/lib/types";
@@ -57,6 +58,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     getCaseById, 
     getCaseDecision, 
     getCasePolicy, 
+    getCaseExecutionProgress,
     getCaseExecutionState, 
     executeRecovery,
     escalateCase,
@@ -120,11 +122,13 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     await executeRecovery(currentCase.id);
   };
 
-  const handleRunScenario = async (scenario: "success" | "timeout" | "block") => {
+  const handleRunScenario = async (scenario: "success" | "timeout" | "block" | "failure") => {
     if (scenario === "block") {
       await executeRecovery(currentCase.id, { forceScenario: "block" });
     } else if (scenario === "timeout") {
       await executeRecovery(currentCase.id, { forceScenario: "timeout" });
+    } else if (scenario === "failure") {
+      await executeRecovery(currentCase.id, { forceScenario: "failure" });
     } else {
       await executeRecovery(currentCase.id, { forceScenario: "success" });
     }
@@ -179,7 +183,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
             className="px-2.5 py-1 rounded text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-100 transition-colors"
             title="Scenario B: Policy rule fails, halts automated action & escalates"
           >
-            B (Policy Block)
+            B (Block)
           </button>
           <button 
             onClick={() => handleRunScenario("timeout")}
@@ -187,6 +191,13 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
             title="Scenario C: Gateway verification times out, halts duplicate retry & escalates"
           >
             C (Timeout)
+          </button>
+          <button 
+            onClick={() => handleRunScenario("failure")}
+            className="px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 dark:bg-surface-elevated text-slate-700 dark:text-text-secondary border border-slate-200 dark:border-border-subtle hover:bg-slate-200 transition-colors"
+            title="Scenario D: Action failure / issuer decline, no recovery, escalates"
+          >
+            D (Failure)
           </button>
           <button
             onClick={resetDemoData}
@@ -659,12 +670,20 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
 
             {/* Prominent Policy Verdict Banner */}
             <div className={cn(
-              "rounded-lg p-3.5 mb-6 flex items-center justify-center font-bold text-xs tracking-wider uppercase border text-center transition-colors",
+              "rounded-lg p-3.5 mb-5 flex items-center justify-center font-bold text-xs tracking-wider uppercase border text-center transition-colors",
               policyResult.allowed 
                 ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/40"
                 : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/40"
             )}>
               {policyResult.allowed ? "✓ POLICY APPROVED FOR EXECUTION" : "✕ POLICY BLOCKED • HUMAN REVIEW REQUIRED"}
+            </div>
+
+            {/* Live Execution Timeline & Razorpay Telemetry */}
+            <div className="mb-5">
+              <ExecutionTimeline 
+                caseItem={currentCase} 
+                progress={getCaseExecutionProgress(currentCase.id)} 
+              />
             </div>
 
             {/* Primary Action Button Area */}

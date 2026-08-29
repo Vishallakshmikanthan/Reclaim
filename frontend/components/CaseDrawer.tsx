@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { useReclaim } from "@/lib/context/ReclaimContext";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
+import { ExecutionTimeline } from "@/components/ui/ExecutionTimeline";
 import { Case } from "@/lib/types";
 import { 
   Play, 
@@ -46,6 +47,7 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
     getCaseById, 
     getCaseDecision, 
     getCasePolicy, 
+    getCaseExecutionProgress,
     getCaseExecutionState, 
     executeRecovery,
     escalateCase 
@@ -352,12 +354,18 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
 
             {!policyResult.allowed && (
               <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 text-xs text-rose-700 dark:text-rose-300">
-                <span className="font-bold">Blocked Reason:</span> {policyResult.blockedRules.join("; ")}
+                <span className="font-bold">Blocked Reason:</span> {policyResult.blockedRules[0]}
               </div>
             )}
           </div>
 
-          {/* 8. Action Execution Area */}
+          {/* 8. Live Execution Pipeline & Razorpay Test Mode Telemetry */}
+          <ExecutionTimeline 
+            caseItem={currentCase} 
+            progress={getCaseExecutionProgress(currentCase.id)} 
+          />
+
+          {/* 9. Action Execution Area */}
           <div className="space-y-3 pt-2">
             
             {/* IDLE / READY */}

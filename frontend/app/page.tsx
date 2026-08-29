@@ -20,11 +20,13 @@ import {
   ChevronRight,
   RotateCcw,
   Zap,
-  Play
+  Play,
+  History,
+  ExternalLink
 } from "lucide-react";
 
 export default function CommandCenter() {
-  const { cases, metrics, resetDemoData } = useReclaim();
+  const { cases, auditEvents, metrics, resetDemoData } = useReclaim();
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -45,7 +47,6 @@ export default function CommandCenter() {
   }, [cases]);
 
   const chartTrendData = useMemo(() => {
-    // Dynamic cumulative recovered vs at risk points
     const recoveredRupees = Math.round(metrics.revenueRecovered / 100);
     const atRiskRupees = Math.round(metrics.revenueAtRisk / 100);
     
@@ -69,6 +70,11 @@ export default function CommandCenter() {
     return cases.slice(0, 6);
   }, [cases]);
 
+  // Derived Recent Activity Stream
+  const recentActivities = useMemo(() => {
+    return auditEvents.slice(0, 4);
+  }, [auditEvents]);
+
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       
@@ -77,7 +83,7 @@ export default function CommandCenter() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-text-primary">
-              Revenue Recovery
+              Revenue Recovery Command Center
             </h1>
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-900/40 px-2.5 py-1 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -85,7 +91,7 @@ export default function CommandCenter() {
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
-            Autonomous decision engine monitoring live Razorpay payment streams
+            Autonomous decision engine monitoring live Razorpay payment streams with deterministic policy controls
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -95,7 +101,7 @@ export default function CommandCenter() {
             title="Reset dataset to default demo state"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            Reset Demo Data
+            Reset Demo
           </button>
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-text-muted">
             <Clock className="w-3.5 h-3.5" />
@@ -122,7 +128,7 @@ export default function CommandCenter() {
             trend="+12.5%"
             trendUp={true}
             valueClassName="text-status-recovered"
-            subtitle={`${metrics.recoveredCount} cases successfully recovered`}
+            subtitle={`${metrics.recoveredCount} cases successfully settled`}
             badge="Razorpay"
             tooltip="Gross transaction volume captured through autonomous retry and multi-channel links"
           />
@@ -131,14 +137,14 @@ export default function CommandCenter() {
             value={`${metrics.recoveryRate}%`}
             trend="+2.1%"
             trendUp={true}
-            subtitle="Across all recoverable payment types"
+            subtitle="Across terminal outcome cases"
             badge="High Precision"
             tooltip="Percentage of recoverable failed transactions successfully captured"
           />
           <MetricCard
             title="Cases Resolved"
-            value={metrics.casesResolvedRatio}
-            subtitle={`${Math.round((metrics.casesResolvedCount / metrics.totalCasesCount) * 100)}% resolved without breach`}
+            value={`${metrics.casesResolvedRatio}%`}
+            subtitle={`${metrics.recoveredCount} recovered of ${metrics.totalCases} total`}
             badge="Automated"
             tooltip="Proportion of cases brought to resolution through bounded autonomous action or safe escalation"
           />
@@ -160,66 +166,102 @@ export default function CommandCenter() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-                Intraday cumulative recovery trajectory in INR
+                Intraday throughput of recovered revenue vs baseline failure exposure
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-text-muted mr-2">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-status-recovered" /> Recovered
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-status-atRisk" /> At Risk
-                </span>
-              </div>
-              <select 
-                aria-label="Select timeframe"
-                className="text-xs font-medium bg-slate-50 dark:bg-surface-elevated border border-slate-200 dark:border-border-subtle text-slate-700 dark:text-text-secondary rounded-lg px-2.5 py-1.5 cursor-pointer outline-none hover:bg-slate-100 transition-colors"
-              >
-                <option>Today (Live)</option>
-                <option>Last 7 days</option>
-                <option>This month</option>
-              </select>
-            </div>
-          </div>
-          <RecoveryTrendChart data={chartTrendData} />
-        </div>
-
-        {/* Secondary Chart: Failure Types */}
-        <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-                Cases by Failure Type
-              </h3>
-              <span className="text-xs font-medium text-slate-500 dark:text-text-muted">
-                {cases.length} Total Cases
+              <span className="text-xs font-medium text-slate-500 dark:text-text-muted bg-slate-100 dark:bg-surface-elevated px-2.5 py-1 rounded-md">
+                Live 24h Window
               </span>
             </div>
+          </div>
+          <div className="mt-4">
+            <RecoveryTrendChart data={chartTrendData} />
+          </div>
+        </div>
+
+        {/* Secondary Chart: Failure Causes Breakdown */}
+        <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+              Failure Root Causes
+            </h3>
             <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-              Distribution of root causes
+              Live breakdown across active cases
             </p>
           </div>
-          <FailureTypeChart data={chartFailureData} />
+          <div className="mt-4">
+            <FailureTypeChart data={chartFailureData} />
+          </div>
         </div>
       </section>
 
-      {/* 4. Recent Activity / Cases Requiring Attention */}
+      {/* 4. Live Recovery Activity Stream Banner */}
+      <section className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-4 sm:p-5 shadow-sm">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-border-subtle">
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-brand" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+              Live Recovery Stream Activity
+            </h3>
+          </div>
+          <Link href="/audit" className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1">
+            Full Audit Ledger <ExternalLink className="w-3 h-3" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
+          {recentActivities.map((act) => {
+            const isSuccess = act.event.includes("SUCCEEDED") || act.event.includes("RESOLVED") || act.event.includes("APPROVED");
+            const isBlocked = act.event.includes("BLOCKED") || act.event.includes("FAILED");
+            const isTimeout = act.event.includes("TIMEOUT") || act.event.includes("ESCALATED");
+
+            return (
+              <div 
+                key={act.id} 
+                className="p-3 rounded-lg bg-slate-50 dark:bg-surface-elevated/60 border border-slate-200/60 dark:border-border-subtle space-y-1 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <span className={cn(
+                    "text-[10px] font-bold px-1.5 py-0.2 rounded uppercase",
+                    isSuccess ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" :
+                    isBlocked ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400" :
+                    isTimeout ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" :
+                    "bg-slate-200 text-slate-700 dark:bg-surface dark:text-text-secondary"
+                  )}>
+                    {act.layer}
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">{act.timestamp}</span>
+                </div>
+                <div className="font-semibold text-slate-900 dark:text-text-primary truncate">
+                  {act.case} • {act.event}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-text-muted line-clamp-2 leading-snug">
+                  {act.desc}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 5. Primary Work Queue: High Priority Cases */}
       <section className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden">
-        <div className="p-5 sm:px-6 border-b border-slate-200/80 dark:border-border-subtle flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+        <div className="p-5 sm:px-6 border-b border-slate-200/80 dark:border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-              Recent Recovery Activity
+              High Priority At-Risk Cases
             </h3>
             <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-              Latest payment events processed by the RECLAIM triage pipeline (Click row to inspect & execute)
+              Failed payments ranked by gross value and algorithmic recovery probability
             </p>
           </div>
-          <Link 
-            href="/at-risk" 
-            className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:text-brand-hover transition-colors"
+          <Link
+            href="/at-risk"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:text-brand-hover transition-colors"
           >
-            View all {cases.length} cases <ChevronRight className="w-3.5 h-3.5" />
+            View all {cases.length} cases
+            <ChevronRight className="w-3.5 h-3.5" />
           </Link>
         </div>
 
@@ -231,7 +273,7 @@ export default function CommandCenter() {
                 <th className="py-3 px-4">Customer</th>
                 <th className="py-3 px-4">Failure Reason</th>
                 <th className="py-3 px-4 text-right">Amount</th>
-                <th className="py-3 px-4">Recovery Prob</th>
+                <th className="py-3 px-4">Recovery Prob.</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 sm:px-6 text-right">Age</th>
               </tr>
@@ -274,7 +316,7 @@ export default function CommandCenter() {
         </div>
       </section>
 
-      {/* 5. System Health & Infrastructure Status */}
+      {/* 6. System Health & Infrastructure Status */}
       <section className="bg-slate-50/50 dark:bg-surface/50 border border-slate-200/80 dark:border-border-subtle rounded-xl p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2">

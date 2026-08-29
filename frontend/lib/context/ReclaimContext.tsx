@@ -1,69 +1,74 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
-import { Case, AuditEvent, PolicyResult, RecoveryDecision } from "../types";
+import { 
+  Case, 
+  AuditEvent, 
+  RecoveryDecision, 
+  PolicyResult, 
+  AuditEventType, 
+  AuditLayer,
+  ExecutionProgress
+} from "../types";
 import { INITIAL_MOCK_CASES } from "../mock-data/mockCases";
 import { INITIAL_AUDIT_EVENTS } from "../mock-data/mockAuditEvents";
 import { evaluatePolicy } from "../policy/policyEngine";
-import { getRecoveryDecision } from "../recovery/aiDecisionEngine";
-import { useToast } from "@/components/ui/Toast";
+import { synthesizeDecision } from "../recovery/decision-engine";
+import { defaultRecoveryExecutor, ExecutionRequest } from "../recovery/recoveryExecutor";
+import { defaultVerificationService } from "../recovery/verificationService";
+import { calculateOperationalMetrics, OperationalMetrics, calculateMoneyImpact } from "../metrics/metricsService";
 import { formatCurrency } from "../utils";
+import { useToast } from "@/components/ui/Toast";
 
-export type ExecutionState = 
-  | "idle" 
-  | "authorizing" 
-  | "executing" 
-  | "verifying" 
-  | "success" 
-  | "blocked" 
-  | "timeout" 
-  | "failed";
-
-export interface ReclaimMetrics {
-  revenueAtRisk: number; // in paise
-  revenueRecovered: number; // in paise
-  recoveryRate: number; // 0 to 100
-  casesResolvedCount: number;
-  totalCasesCount: number;
-  casesResolvedRatio: string;
-  activeAtRiskCount: number;
-  recoveredCount: number;
+interface ExecuteOptions {
+  forceScenario?: "success" | "timeout" | "block" | "failure";
 }
 
-export interface ReclaimContextType {
+interface ReclaimContextType {
   cases: Case[];
   auditEvents: AuditEvent[];
   selectedCaseId: string | null;
-  selectedCase: Case | null;
   setSelectedCaseId: (id: string | null) => void;
+  selectedCase: Case | null;
+  
+  // Real-time deterministic metrics
+  metrics: OperationalMetrics;
+
+  // Decision & Policy getters
   getCaseById: (id: string) => Case | undefined;
-  metrics: ReclaimMetrics;
-  executionState: Record<string, ExecutionState>;
-  getCaseExecutionState: (caseId: string) => ExecutionState;
-  executeRecovery: (caseId: string, options?: { forceScenario?: "success" | "timeout" | "block" }) => Promise<boolean>;
+  getCaseDecision: (caseItem: Case) => RecoveryDecision;
+  getCasePolicy: (caseItem: Case) => PolicyResult;
+  getCaseExecutionProgress: (id: string) => ExecutionProgress;
+  getCaseExecutionState: (id: string) => string;
+  getCaseMoneyImpact: (caseItem: Case) => ReturnType<typeof calculateMoneyImpact>;
+
+  // Execution Actions
+  executeRecovery: (caseId: string, options?: ExecuteOptions) => Promise<boolean>;
   escalateCase: (caseId: string, reason?: string) => void;
   stopCase: (caseId: string, reason?: string) => void;
   resetDemoData: () => void;
-  getCasePolicy: (caseItem: Case) => PolicyResult;
-  getCaseDecision: (caseItem: Case) => RecoveryDecision;
+
+  // Audit Dispatcher
   addAuditEvent: (event: Omit<AuditEvent, "id" | "timestamp">) => void;
 }
 
 const ReclaimContext = createContext<ReclaimContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_KEY_CASES = "reclaim_demo_cases_v1";
-const LOCAL_STORAGE_KEY_AUDIT = "reclaim_demo_audit_v1";
+const STORAGE_CASES_KEY = "reclaim_v1_cases";
+const STORAGE_AUDIT_KEY = "reclaim_v1_audit";
 
 export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
-  
+
   const [cases, setCases] = useState<Case[]>(() => {
     if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(LOCAL_STORAGE_KEY_CASES);
-        if (saved) return JSON.parse(saved);
-      } catch (e) {
-        console.error("Failed to load saved cases from localStorage", e);
+      const saved = localStorage.getItem(STORAGE_CASES_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse cases from localStorage:", e);
+        }
       }
     }
     return INITIAL_MOCK_CASES;
@@ -71,122 +76,94 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>(() => {
     if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(LOCAL_STORAGE_KEY_AUDIT);
-        if (saved) return JSON.parse(saved);
-      } catch (e) {
-        console.error("Failed to load saved audit events from localStorage", e);
+      const saved = localStorage.getItem(STORAGE_AUDIT_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse audit events from localStorage:", e);
+        }
       }
     }
     return INITIAL_AUDIT_EVENTS;
   });
 
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>("RC-2024-081");
-  const [executionState, setExecutionState] = useState<Record<string, ExecutionState>>({});
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  
+  // Execution state & progress tracking per case
+  const [executionProgressMap, setExecutionProgressMap] = useState<Record<string, ExecutionProgress>>({});
 
-  // Sync to localStorage
+  // Synchronize with LocalStorage
   useEffect(() => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY_CASES, JSON.stringify(cases));
-    } catch (e) {}
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify(cases));
+    }
   }, [cases]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY_AUDIT, JSON.stringify(auditEvents));
-    } catch (e) {}
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_AUDIT_KEY, JSON.stringify(auditEvents));
+    }
   }, [auditEvents]);
 
-  const selectedCase = useMemo(() => {
-    if (!selectedCaseId) return null;
-    return cases.find((c) => c.id === selectedCaseId) || null;
-  }, [cases, selectedCaseId]);
+  // Deterministic metrics derived strictly from the dataset
+  const metrics = useMemo(() => calculateOperationalMetrics(cases), [cases]);
 
-  const getCaseById = useCallback((id: string) => {
-    return cases.find((c) => c.id === id);
-  }, [cases]);
-
-  const getCaseExecutionState = useCallback((caseId: string): ExecutionState => {
-    return executionState[caseId] || "idle";
-  }, [executionState]);
-
-  // Derived live metrics directly from the cases dataset
-  const metrics = useMemo<ReclaimMetrics>(() => {
-    let atRiskSum = 0;
-    let recoveredSum = 0;
-    let recoveredCount = 0;
-    let resolvedCount = 0;
-    let activeAtRiskCount = 0;
-
-    cases.forEach((c) => {
-      if (c.status === "recovered") {
-        recoveredSum += c.resolutionDetails?.recoveredAmount || c.amount;
-        recoveredCount += 1;
-        resolvedCount += 1;
-      } else if (c.status === "stopped" || c.status === "escalated") {
-        resolvedCount += 1;
-      } else {
-        // atRisk, inProgress, pending, failed, blocked
-        atRiskSum += c.amount;
-        activeAtRiskCount += 1;
-      }
-    });
-
-    const totalCasesCount = cases.length;
-    // Recovery rate: recovered cases out of total eligible cases
-    const recoveryRate = totalCasesCount > 0 
-      ? Number(((recoveredCount / totalCasesCount) * 100).toFixed(1)) 
-      : 0;
-
-    return {
-      revenueAtRisk: atRiskSum,
-      revenueRecovered: recoveredSum,
-      recoveryRate,
-      casesResolvedCount: resolvedCount,
-      totalCasesCount,
-      casesResolvedRatio: `${resolvedCount} / ${totalCasesCount}`,
-      activeAtRiskCount,
-      recoveredCount,
-    };
-  }, [cases]);
-
-  const addAuditEvent = useCallback((eventData: Omit<AuditEvent, "id" | "timestamp">) => {
-    const now = new Date();
-    const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
+  // Audit Dispatcher
+  const addAuditEvent = useCallback((event: Omit<AuditEvent, "id" | "timestamp">) => {
     const newEvent: AuditEvent = {
-      id: `EV-${Math.floor(10000 + Math.random() * 90000)}`,
-      timestamp: `Just now (${timeString})`,
-      latency: `${Math.floor(2 + Math.random() * 18)}ms`,
-      ...eventData,
+      ...event,
+      id: `EVT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }),
     };
 
     setAuditEvents((prev) => [newEvent, ...prev]);
   }, []);
 
-  const getCasePolicy = useCallback((caseItem: Case) => {
+  const getCaseById = useCallback((id: string) => {
+    return cases.find((c) => c.id === id);
+  }, [cases]);
+
+  const selectedCase = useMemo(() => {
+    return selectedCaseId ? getCaseById(selectedCaseId) || null : null;
+  }, [selectedCaseId, getCaseById]);
+
+  const getCaseDecision = useCallback((caseItem: Case): RecoveryDecision => {
+    return synthesizeDecision(caseItem);
+  }, []);
+
+  const getCasePolicy = useCallback((caseItem: Case): PolicyResult => {
     return evaluatePolicy(caseItem);
   }, []);
 
-  const getCaseDecision = useCallback((caseItem: Case) => {
-    return getRecoveryDecision(caseItem);
+  const getCaseExecutionProgress = useCallback((id: string): ExecutionProgress => {
+    return executionProgressMap[id] || { caseId: id, step: "idle" };
+  }, [executionProgressMap]);
+
+  const getCaseExecutionState = useCallback((id: string): string => {
+    return executionProgressMap[id]?.step || "idle";
+  }, [executionProgressMap]);
+
+  const getCaseMoneyImpact = useCallback((caseItem: Case) => {
+    return calculateMoneyImpact(caseItem);
   }, []);
 
-  const executeRecovery = useCallback(async (caseId: string, options?: { forceScenario?: "success" | "timeout" | "block" }): Promise<boolean> => {
+  /**
+   * Complete End-to-End Revenue Recovery Loop Execution Pipeline
+   * DETECT -> ANALYZE -> DECIDE -> POLICY CHECK -> ACT (Razorpay Test Mode) -> VERIFY -> RECOVER / FAIL / ESCALATE -> AUDIT
+   */
+  const executeRecovery = useCallback(async (caseId: string, options?: ExecuteOptions): Promise<boolean> => {
     const targetCase = cases.find((c) => c.id === caseId);
     if (!targetCase) {
-      toast({
-        title: "Case Not Found",
-        description: `Could not find case ${caseId}.`,
-        type: "error",
-      });
+      toast({ title: "Case Not Found", description: `Case ${caseId} does not exist.`, type: "error" });
       return false;
     }
 
-    // Phase 11: Idempotency Protection
-    const currentState = executionState[caseId] || "idle";
-    if (["authorizing", "executing", "verifying"].includes(currentState)) {
+    // 1. IDEMPOTENCY CHECK
+    const currentProgress = executionProgressMap[caseId];
+    if (currentProgress && ["authorizing", "executing", "verifying"].includes(currentProgress.step)) {
       toast({
-        title: "Execution In Progress",
+        title: "Recovery In Progress",
         description: `Recovery for case ${caseId} is already executing. Duplicate action prevented.`,
         type: "warning",
       });
@@ -196,114 +173,149 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     if (targetCase.status === "recovered") {
       toast({
         title: "Already Recovered",
-        description: `Case ${caseId} is already successfully recovered (${formatCurrency(targetCase.amount)}).`,
+        description: `Case ${caseId} is already settled for ${formatCurrency(targetCase.amount)}. Duplicate action prevented.`,
         type: "info",
       });
       return false;
     }
 
-    // Determine effective scenario
-    const effectiveScenario = options?.forceScenario || targetCase.demoScenario;
+    const decision = synthesizeDecision(targetCase);
+    const policy = evaluatePolicy(targetCase);
+    const effectiveScenario = options?.forceScenario || targetCase.demoScenario || "A_SUCCESS";
+    const idempotencyKey = `rz_rec_${targetCase.id}_${Date.now()}`;
 
-    // STEP 1: LAYER 3 POLICY CHECK (AUTHORIZING)
-    setExecutionState((prev) => ({ ...prev, [caseId]: "authorizing" }));
+    // --- STEP 1: LAYER 3 POLICY CHECK (AUTHORIZING) ---
+    setExecutionProgressMap((prev) => ({
+      ...prev,
+      [caseId]: { caseId, step: "authorizing", idempotencyKey }
+    }));
 
-    toast({
-      title: "Authorizing Action (Layer 3)",
-      description: `Evaluating deterministic policies for ${targetCase.id}...`,
-      type: "info",
-      duration: 1800,
+    addAuditEvent({
+      layer: "LAYER 3",
+      event: "POLICY_CHECKED",
+      case: targetCase.id,
+      desc: `Evaluating 6 deterministic rules for ${decision.recommendedIntervention}.`,
     });
 
-    // Small delay to simulate evaluation
     await new Promise((res) => setTimeout(res, 600));
 
-    const policy = evaluatePolicy(targetCase);
-
-    // If policy is blocked (Scenario B or real policy failure)
+    // Check if Scenario B or policy fails
     if (!policy.allowed || effectiveScenario === "block" || effectiveScenario === "B_POLICY_BLOCK") {
-      setExecutionState((prev) => ({ ...prev, [caseId]: "blocked" }));
+      setExecutionProgressMap((prev) => ({
+        ...prev,
+        [caseId]: { caseId, step: "blocked", idempotencyKey }
+      }));
+
+      const blockReason = policy.blockedRules[0] || "Maximum retry ceiling (3/3) exceeded.";
 
       addAuditEvent({
         layer: "LAYER 3",
         event: "POLICY_BLOCKED",
         case: targetCase.id,
-        desc: `Action blocked by policy: ${policy.blockedRules[0] || "Policy threshold exceeded"}.`,
+        desc: `Action blocked: ${blockReason}. Autonomous execution prohibited.`,
       });
 
       addAuditEvent({
         layer: "LAYER 5",
         event: "CASE_ESCALATED",
         case: targetCase.id,
-        desc: `Case escalated to manual operations desk due to deterministic policy lockout.`,
+        desc: `Transferred to human operations desk due to policy block: ${blockReason}`,
       });
 
       setCases((prev) =>
         prev.map((c) =>
           c.id === caseId
-            ? { ...c, status: "escalated", lastError: policy.blockedRules[0] }
+            ? { ...c, status: "escalated", lastError: `Policy blocked: ${blockReason}` }
             : c
         )
       );
 
       toast({
-        title: "Policy Blocked ✕",
-        description: policy.blockedRules[0] || "Policy guardrail failed. Escalated to operations.",
+        title: "Action Blocked by Policy",
+        description: blockReason,
         type: "error",
-        duration: 4000,
+        duration: 4500,
       });
 
       return false;
     }
 
-    // Policy Approved
     addAuditEvent({
       layer: "LAYER 3",
       event: "POLICY_APPROVED",
       case: targetCase.id,
-      desc: `All 6 deterministic policy rules passed. Amount (${formatCurrency(targetCase.amount)}) and limits approved for auto-recovery.`,
+      desc: `All 6 deterministic rules satisfied. Action authorized for ${formatCurrency(targetCase.amount)}.`,
     });
 
-    // STEP 2: LAYER 4 ACTION EXECUTION (EXECUTING)
-    setExecutionState((prev) => ({ ...prev, [caseId]: "executing" }));
+    // --- STEP 2: LAYER 4 RAZORPAY TEST MODE EXECUTION (EXECUTING) ---
+    setExecutionProgressMap((prev) => ({
+      ...prev,
+      [caseId]: { caseId, step: "executing", idempotencyKey, gateway: "Razorpay Test Gateway" }
+    }));
 
     addAuditEvent({
       layer: "LAYER 4",
       event: "ACTION_EXECUTED",
       case: targetCase.id,
-      desc: `Executing Primary Action: ${targetCase.strategy} for ${formatCurrency(targetCase.amount)} with idempotency key rz_rec_${targetCase.id}_${Date.now()}.`,
+      desc: `Dispatched Razorpay Test Mode ${decision.recommendedIntervention} (${targetCase.strategy}) with idempotency key ${idempotencyKey}.`,
     });
 
     toast({
       title: "Executing Recovery (Layer 4)",
-      description: `Sending idempotent action to Razorpay gateway for ${formatCurrency(targetCase.amount)}...`,
+      description: `Sending idempotent action to Razorpay Test Mode for ${formatCurrency(targetCase.amount)}...`,
       type: "info",
       duration: 2000,
     });
 
-    await new Promise((res) => setTimeout(res, 1200));
+    const executionRequest: ExecutionRequest = {
+      caseId: targetCase.id,
+      amount: targetCase.amount,
+      paymentMethod: targetCase.paymentMethod,
+      intervention: decision.recommendedIntervention,
+      strategy: targetCase.strategy,
+      idempotencyKey,
+      isTestMode: true,
+    };
 
-    // STEP 3: LAYER 5 VERIFICATION (VERIFYING)
-    setExecutionState((prev) => ({ ...prev, [caseId]: "verifying" }));
+    const executionResult = await defaultRecoveryExecutor.execute(executionRequest);
 
-    await new Promise((res) => setTimeout(res, 1000));
+    // --- STEP 3: LAYER 5 GATEWAY TELEMETRY VERIFICATION (VERIFYING) ---
+    setExecutionProgressMap((prev) => ({
+      ...prev,
+      [caseId]: { 
+        caseId, 
+        step: "verifying", 
+        idempotencyKey, 
+        gateway: executionResult.gateway 
+      }
+    }));
 
-    // Scenario C: VERIFICATION TIMEOUT
-    if (effectiveScenario === "timeout" || effectiveScenario === "C_TIMEOUT") {
-      setExecutionState((prev) => ({ ...prev, [caseId]: "timeout" }));
+    const verificationOutcome = await defaultVerificationService.verify(
+      executionResult, 
+      effectiveScenario
+    );
+
+    // --- STEP 4: RESOLUTION / FAILURE HANDLING ---
+
+    // SCENARIO C: VERIFICATION TIMEOUT
+    if (verificationOutcome.status === "TIMEOUT") {
+      setExecutionProgressMap((prev) => ({
+        ...prev,
+        [caseId]: { caseId, step: "timeout", idempotencyKey }
+      }));
 
       addAuditEvent({
         layer: "LAYER 4",
         event: "VERIFICATION_TIMEOUT",
         case: targetCase.id,
-        desc: "Gateway verification response timed out after 30s. Bounded safety engaged: NO automatic duplicate retry.",
+        desc: "Gateway verification response timed out after 30s. Bounded safety: NO automatic duplicate retry.",
       });
 
       addAuditEvent({
         layer: "LAYER 5",
         event: "CASE_ESCALATED",
         case: targetCase.id,
-        desc: "Case escalated for manual review. Settlement status remains unconfirmed.",
+        desc: "Case escalated for manual reconciliation. Settlement status remains unconfirmed.",
       });
 
       setCases((prev) =>
@@ -321,7 +333,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
       toast({
         title: "Verification Timed Out ⚠️",
-        description: "Response ambiguous. Stopped duplicate retries to prevent double debits. Escalated.",
+        description: "Gateway response ambiguous. Stopped duplicate retries to prevent double debits. Escalated.",
         type: "warning",
         duration: 5000,
       });
@@ -329,25 +341,79 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // STEP 4: SUCCESSFUL RECOVERY
-    setExecutionState((prev) => ({ ...prev, [caseId]: "success" }));
+    // SCENARIO D: RECOVERY FAILURE
+    if (verificationOutcome.status === "FAILED" || effectiveScenario === "failure") {
+      setExecutionProgressMap((prev) => ({
+        ...prev,
+        [caseId]: { caseId, step: "failed", idempotencyKey }
+      }));
+
+      addAuditEvent({
+        layer: "LAYER 4",
+        event: "ACTION_FAILED",
+        case: targetCase.id,
+        desc: `Razorpay retry declined by issuing bank: ${verificationOutcome.message}`,
+      });
+
+      addAuditEvent({
+        layer: "LAYER 5",
+        event: "CASE_ESCALATED",
+        case: targetCase.id,
+        desc: "Automated retry path exhausted. Case escalated to customer success desk.",
+      });
+
+      setCases((prev) =>
+        prev.map((c) =>
+          c.id === caseId
+            ? {
+                ...c,
+                status: "escalated",
+                retryCount: c.retryCount + 1,
+                lastError: "Issuing bank declined retry authorization.",
+              }
+            : c
+        )
+      );
+
+      toast({
+        title: "Recovery Action Failed",
+        description: "Issuing bank declined the retry challenge. Escalated to operations desk.",
+        type: "error",
+        duration: 4500,
+      });
+
+      return false;
+    }
+
+    // SCENARIO A: SUCCESSFUL RECOVERY & REVENUE SETTLEMENT
+    const txnId = verificationOutcome.transactionId || `txn_rz_${Date.now()}`;
+
+    setExecutionProgressMap((prev) => ({
+      ...prev,
+      [caseId]: { 
+        caseId, 
+        step: "success", 
+        idempotencyKey, 
+        transactionId: txnId,
+        latency: `${verificationOutcome.telemetryLatencyMs}ms`
+      }
+    }));
 
     addAuditEvent({
       layer: "LAYER 4",
       event: "ACTION_SUCCEEDED",
       case: targetCase.id,
-      desc: `Razorpay response 200 OK captured for payment ${targetCase.paymentId}.`,
+      desc: `Razorpay Test Mode captured ${formatCurrency(targetCase.amount)}. Ref: ${txnId}`,
     });
 
     addAuditEvent({
       layer: "LAYER 5",
       event: "CASE_RESOLVED",
       case: targetCase.id,
-      desc: `${formatCurrency(targetCase.amount)} recovered successfully via ${targetCase.strategy}. Immutable ledger settled.`,
+      desc: `Settled ${formatCurrency(targetCase.amount)} in ledger. Revenue at Risk reduced.`,
     });
 
-    const nowStr = new Date().toLocaleTimeString();
-
+    // Update case state to RECOVERED and record settlement details
     setCases((prev) =>
       prev.map((c) =>
         c.id === caseId
@@ -357,9 +423,9 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
               retryCount: c.retryCount + 1,
               resolutionDetails: {
                 recoveredAmount: c.amount,
-                channel: c.strategy,
-                timestamp: `Just now (${nowStr})`,
-                transactionId: `${c.paymentId}_rec_${Date.now().toString().slice(-6)}`,
+                channel: decision.recommendedIntervention,
+                timestamp: new Date().toISOString(),
+                transactionId: txnId,
               },
             }
           : c
@@ -367,67 +433,80 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     );
 
     toast({
-      title: "Recovery Successful ✓",
-      description: `${formatCurrency(targetCase.amount)} recovered. Case marked resolved.`,
+      title: "Money Recovered! 🎉",
+      description: `Successfully captured ${formatCurrency(targetCase.amount)} via ${decision.recommendedIntervention}. Dashboard updated.`,
       type: "success",
       duration: 4000,
     });
 
     return true;
-  }, [cases, executionState, addAuditEvent, toast]);
+  }, [cases, executionProgressMap, addAuditEvent, toast]);
 
-  const escalateCase = useCallback((caseId: string, reason = "Manual operations escalation") => {
+  const escalateCase = useCallback((caseId: string, reason?: string) => {
+    const targetCase = cases.find((c) => c.id === caseId);
+    if (!targetCase) return;
+
     setCases((prev) =>
-      prev.map((c) => (c.id === caseId ? { ...c, status: "escalated", lastError: reason } : c))
+      prev.map((c) =>
+        c.id === caseId
+          ? { ...c, status: "escalated", lastError: reason || "Escalated for human review" }
+          : c
+      )
     );
 
     addAuditEvent({
       layer: "LAYER 5",
       event: "CASE_ESCALATED",
-      case: caseId,
-      desc: `Case escalated by operator: ${reason}.`,
+      case: targetCase.id,
+      desc: reason ? `Escalated: ${reason}` : "Escalated to human operations desk.",
     });
 
     toast({
       title: "Case Escalated",
-      description: `Case ${caseId} transferred to human review desk.`,
+      description: `Case ${caseId} routed to Human Operations Desk.`,
       type: "info",
     });
-  }, [addAuditEvent, toast]);
+  }, [cases, addAuditEvent, toast]);
 
-  const stopCase = useCallback((caseId: string, reason = "Manual stop command") => {
+  const stopCase = useCallback((caseId: string, reason?: string) => {
+    const targetCase = cases.find((c) => c.id === caseId);
+    if (!targetCase) return;
+
     setCases((prev) =>
-      prev.map((c) => (c.id === caseId ? { ...c, status: "stopped", lastError: reason } : c))
+      prev.map((c) =>
+        c.id === caseId
+          ? { ...c, status: "stopped", lastError: reason || "Stopped by operator" }
+          : c
+      )
     );
 
     addAuditEvent({
       layer: "LAYER 5",
       event: "CASE_STOPPED",
-      case: caseId,
-      desc: `Autonomous recovery stopped: ${reason}.`,
+      case: targetCase.id,
+      desc: reason ? `Stopped: ${reason}` : "Recovery stopped by operator.",
     });
 
     toast({
       title: "Recovery Stopped",
-      description: `Case ${caseId} halted. No further actions will execute.`,
+      description: `Case ${caseId} marked as stopped.`,
       type: "info",
     });
-  }, [addAuditEvent, toast]);
+  }, [cases, addAuditEvent, toast]);
 
   const resetDemoData = useCallback(() => {
     setCases(INITIAL_MOCK_CASES);
     setAuditEvents(INITIAL_AUDIT_EVENTS);
-    setSelectedCaseId("RC-2024-081");
-    setExecutionState({});
-    try {
-      localStorage.removeItem(LOCAL_STORAGE_KEY_CASES);
-      localStorage.removeItem(LOCAL_STORAGE_KEY_AUDIT);
-    } catch (e) {}
-
+    setExecutionProgressMap({});
+    setSelectedCaseId(null);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(STORAGE_CASES_KEY);
+      localStorage.removeItem(STORAGE_AUDIT_KEY);
+    }
     toast({
       title: "Demo State Reset",
-      description: "Dataset reset to pristine demo scenarios with 27 cases.",
-      type: "success",
+      description: "Restored initial cases, metrics, and audit ledger.",
+      type: "info",
     });
   }, [toast]);
 
@@ -437,18 +516,19 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         cases,
         auditEvents,
         selectedCaseId,
-        selectedCase,
         setSelectedCaseId,
-        getCaseById,
+        selectedCase,
         metrics,
-        executionState,
+        getCaseById,
+        getCaseDecision,
+        getCasePolicy,
+        getCaseExecutionProgress,
         getCaseExecutionState,
+        getCaseMoneyImpact,
         executeRecovery,
         escalateCase,
         stopCase,
         resetDemoData,
-        getCasePolicy,
-        getCaseDecision,
         addAuditEvent,
       }}
     >

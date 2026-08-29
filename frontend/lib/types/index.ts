@@ -141,6 +141,15 @@ export interface PolicyResult {
   recommendedNextAction: string;
 }
 
+export interface ExecutionProgress {
+  caseId: string;
+  step: "idle" | "authorizing" | "executing" | "verifying" | "success" | "timeout" | "failed" | "blocked";
+  idempotencyKey?: string;
+  gateway?: string;
+  transactionId?: string;
+  latency?: string;
+}
+
 export interface AlternativeAction {
   name: string;
   channel: string;
