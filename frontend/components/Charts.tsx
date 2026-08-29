@@ -13,7 +13,7 @@ import {
   Bar,
 } from "recharts";
 
-const recoveryData = [
+const defaultRecoveryData = [
   { time: "00:00", recovered: 12000, atRisk: 15000 },
   { time: "04:00", recovered: 18000, atRisk: 22000 },
   { time: "08:00", recovered: 45000, atRisk: 58000 },
@@ -23,21 +23,28 @@ const recoveryData = [
   { time: "24:00", recovered: 245000, atRisk: 280000 },
 ];
 
-const failureData = [
-  { name: "UPI Timeout", count: 250, share: "31%" },
-  { name: "Card Decline", count: 200, share: "25%" },
-  { name: "No Funds", count: 150, share: "19%" },
-  { name: "Abandonment", count: 150, share: "19%" },
-  { name: "Bank Down", count: 120, share: "15%" },
-  { name: "Sub Fail", count: 80, share: "10%" },
-  { name: "Overdue", count: 50, share: "6%" },
+const defaultFailureData = [
+  { name: "UPI Timeout", count: 8, share: "30%" },
+  { name: "Card Decline", count: 6, share: "22%" },
+  { name: "Insufficient Funds", count: 4, share: "15%" },
+  { name: "Abandonment", count: 4, share: "15%" },
+  { name: "Bank Down", count: 3, share: "11%" },
+  { name: "Sub Fail", count: 2, share: "7%" },
 ];
 
-export function RecoveryTrendChart() {
+interface RecoveryTrendChartProps {
+  data?: Array<{ time: string; recovered: number; atRisk: number }>;
+}
+
+interface FailureTypeChartProps {
+  data?: Array<{ name: string; count: number; share?: string }>;
+}
+
+export function RecoveryTrendChart({ data = defaultRecoveryData }: RecoveryTrendChartProps) {
   return (
     <div className="h-[280px] w-full mt-4">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={recoveryData} margin={{ top: 12, right: 12, left: -10, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 12, right: 12, left: -10, bottom: 0 }}>
           <defs>
             <linearGradient id="colorRecovered" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="var(--status-recovered)" stopOpacity={0.25} />
@@ -99,11 +106,11 @@ export function RecoveryTrendChart() {
   );
 }
 
-export function FailureTypeChart() {
+export function FailureTypeChart({ data = defaultFailureData }: FailureTypeChartProps) {
   return (
     <div className="h-[280px] w-full mt-4">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={failureData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }} layout="vertical">
+        <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }} layout="vertical">
           <CartesianGrid strokeDasharray="2 2" horizontal={true} vertical={false} stroke="var(--border-subtle)" opacity={0.6} />
           <XAxis 
             type="number" 
@@ -117,7 +124,7 @@ export function FailureTypeChart() {
             axisLine={false} 
             tickLine={false} 
             tick={{ fill: 'var(--text-muted)', fontSize: 11, fontWeight: 500 }} 
-            width={95} 
+            width={110} 
           />
           <Tooltip 
             cursor={{ fill: 'var(--border-subtle)', opacity: 0.15 }}
@@ -135,11 +142,10 @@ export function FailureTypeChart() {
             fill="var(--brand-primary)" 
             radius={[0, 4, 4, 0]} 
             barSize={16} 
-            name="Failed Cases" 
+            name="Cases" 
           />
         </BarChart>
       </ResponsiveContainer>
     </div>
   );
 }
-

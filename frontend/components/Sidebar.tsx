@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useReclaim } from "@/lib/context/ReclaimContext";
 import { 
   LayoutDashboard, 
   AlertTriangle, 
@@ -23,36 +24,37 @@ interface SidebarProps {
   onClose?: () => void;
 }
 
-const NAV_SECTIONS = [
-  {
-    title: "OPERATIONS",
-    items: [
-      { name: "Command Center", href: "/", icon: LayoutDashboard },
-      { name: "At Risk", href: "/at-risk", icon: AlertTriangle, badge: "7" },
-      { name: "Cases", href: "/cases", icon: Briefcase },
-      { name: "Campaigns", href: "/campaigns", icon: Megaphone },
-      { name: "Communications", href: "/communications", icon: MessageSquare },
-    ]
-  },
-  {
-    title: "INTELLIGENCE",
-    items: [
-      { name: "Evaluation", href: "/evaluation", icon: Sparkles, badge: "+42%" },
-      { name: "Analytics", href: "/analytics", icon: BarChart3 },
-      { name: "Audit Trail", href: "/audit", icon: History },
-    ]
-  },
-  {
-    title: "CONFIGURATION",
-    items: [
-      { name: "Policy Center", href: "/policy", icon: ShieldCheck },
-      { name: "Settings", href: "/settings", icon: Settings },
-    ]
-  }
-];
-
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const { metrics } = useReclaim();
+
+  const navSections = [
+    {
+      title: "OPERATIONS",
+      items: [
+        { name: "Command Center", href: "/", icon: LayoutDashboard },
+        { name: "At Risk", href: "/at-risk", icon: AlertTriangle, badge: metrics.activeAtRiskCount > 0 ? metrics.activeAtRiskCount.toString() : undefined },
+        { name: "Cases", href: "/cases", icon: Briefcase },
+        { name: "Campaigns", href: "/campaigns", icon: Megaphone },
+        { name: "Communications", href: "/communications", icon: MessageSquare },
+      ]
+    },
+    {
+      title: "INTELLIGENCE",
+      items: [
+        { name: "Evaluation", href: "/evaluation", icon: Sparkles, badge: "+42%" },
+        { name: "Analytics", href: "/analytics", icon: BarChart3 },
+        { name: "Audit Trail", href: "/audit", icon: History },
+      ]
+    },
+    {
+      title: "CONFIGURATION",
+      items: [
+        { name: "Policy Center", href: "/policy", icon: ShieldCheck },
+        { name: "Settings", href: "/settings", icon: Settings },
+      ]
+    }
+  ];
 
   return (
     <>
@@ -90,7 +92,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
         {/* Navigation Sections */}
         <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-6">
-          {NAV_SECTIONS.map((section) => (
+          {navSections.map((section) => (
             <div key={section.title} className="space-y-1">
               <div className="px-3 pb-1.5 text-[10px] font-bold tracking-wider text-slate-400 dark:text-text-muted uppercase">
                 {section.title}
@@ -163,4 +165,3 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     </>
   );
 }
-

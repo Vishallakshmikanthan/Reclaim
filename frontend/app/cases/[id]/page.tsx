@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { formatCurrency, cn } from "@/lib/utils";
 import { PolicyCheck } from "@/components/ui/PolicyCheck";
@@ -9,6 +9,8 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
+import { useReclaim } from "@/lib/context/ReclaimContext";
+import { Case } from "@/lib/types";
 import { 
   ArrowLeft, 
   BrainCircuit, 
@@ -24,7 +26,10 @@ import {
   Send,
   FileCheck2,
   ExternalLink,
-  Info
+  Info,
+  ShieldCheck,
+  Zap,
+  Terminal
 } from "lucide-react";
 
 const LIFECYCLE_STEPS = [
@@ -40,91 +45,74 @@ const LIFECYCLE_STEPS = [
 export default function CaseDecisionPage({ params }: { params: { id: string } }) {
   const caseId = params.id || "RC-2024-081";
   const { toast } = useToast();
+  const { 
+    cases, 
+    getCaseById, 
+    getCaseDecision, 
+    getCasePolicy, 
+    getCaseExecutionState, 
+    executeRecovery,
+    escalateCase,
+    auditEvents,
+    resetDemoData
+  } = useReclaim();
   
-  const [executionState, setExecutionState] = useState<"idle" | "authorizing" | "executing" | "verifying" | "success" | "blocked" | "timeout">("idle");
-  const [lifecycleProgress, setLifecycleProgress] = useState(3); // DETECT, ANALYZE, DECIDE, POLICY evaluated
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
+  // Retrieve current live case
+  const currentCase = useMemo(() => {
+    return getCaseById(caseId) || cases[0];
+  }, [caseId, getCaseById, cases]);
+
+  const executionState = getCaseExecutionState(currentCase.id);
+  const isRecovered = currentCase.status === "recovered";
+
+  // Dynamic AI synthesis & deterministic policy check
+  const aiDecision = useMemo(() => getCaseDecision(currentCase), [currentCase, getCaseDecision]);
+  const policyResult = useMemo(() => getCasePolicy(currentCase), [currentCase, getCasePolicy]);
+
+  // Compute lifecycle progress step (0 to 6)
+  const lifecycleProgress = useMemo(() => {
+    if (isRecovered || executionState === "success") return 6;
+    if (executionState === "verifying") return 5;
+    if (executionState === "executing") return 4;
+    if (executionState === "authorizing") return 3;
+    if (executionState === "blocked") return 3;
+    if (executionState === "timeout") return 4;
+    return 3; // Ready after detect, analyze, decide, policy
+  }, [executionState, isRecovered]);
+
+  // Filter audit events specific to this case
+  const caseAuditEvents = useMemo(() => {
+    return auditEvents.filter((e) => e.case === currentCase.id);
+  }, [auditEvents, currentCase.id]);
+
   const handleStartExecute = () => {
+    if (!policyResult.allowed) {
+      toast({
+        title: "Action Blocked by Policy",
+        description: policyResult.blockedRules[0] || "Deterministic rule failed. Cannot execute.",
+        type: "error",
+      });
+      return;
+    }
     setIsConfirmModalOpen(true);
   };
 
-  const handleConfirmExecute = () => {
+  const handleConfirmExecute = async () => {
     setIsConfirmModalOpen(false);
-    setExecutionState("authorizing");
-    setLifecycleProgress(3);
-    
-    toast({
-      title: "Authorizing Action",
-      description: "Verifying 6 deterministic guardrails with Layer 3 policy engine...",
-      type: "info",
-      duration: 1500
-    });
-
-    setTimeout(() => {
-      setExecutionState("executing");
-      setLifecycleProgress(4); // ACT
-      
-      toast({
-        title: "Executing Primary Action",
-        description: "Triggering idempotent POST /v1/payments/pay_P4qX92vLmK0/retry...",
-        type: "info",
-        duration: 2000
-      });
-
-      setTimeout(() => {
-        setExecutionState("verifying");
-        setLifecycleProgress(5); // VERIFY
-
-        setTimeout(() => {
-          setExecutionState("success");
-          setLifecycleProgress(6); // RECOVER
-          
-          toast({
-            title: "Recovery Confirmed ✓",
-            description: "₹8,499 recovered successfully. Immutable ledger committed.",
-            type: "success",
-            duration: 4000
-          });
-        }, 1200);
-      }, 1500);
-    }, 600);
+    await executeRecovery(currentCase.id);
   };
 
-  const handleTimeoutDemo = () => {
-    setExecutionState("executing");
-    setLifecycleProgress(4);
-    
-    setTimeout(() => {
-      setExecutionState("timeout");
-      toast({
-        title: "Verification Required",
-        description: "Gateway response timed out. Duplicate execution halted.",
-        type: "warning"
-      });
-    }, 1500);
+  const handleRunScenario = async (scenario: "success" | "timeout" | "block") => {
+    if (scenario === "block") {
+      await executeRecovery(currentCase.id, { forceScenario: "block" });
+    } else if (scenario === "timeout") {
+      await executeRecovery(currentCase.id, { forceScenario: "timeout" });
+    } else {
+      await executeRecovery(currentCase.id, { forceScenario: "success" });
+    }
   };
-
-  const handlePolicyBlockDemo = () => {
-    setExecutionState("blocked");
-    setLifecycleProgress(3);
-    toast({
-      title: "Policy Block Enforced",
-      description: "Action prohibited by maximum retry limit (POL-01). Escalated to desk.",
-      type: "error"
-    });
-  };
-
-  const handleResetDemo = () => {
-    setExecutionState("idle");
-    setLifecycleProgress(3);
-    toast({
-      title: "Scenario Reset",
-      description: "Case restored to initial triage state.",
-      type: "info"
-    });
-  };
-
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300 pb-16">
@@ -145,54 +133,49 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                 Recovery Decision
               </h1>
               <span className="font-mono text-xs font-semibold px-2.5 py-0.5 rounded bg-slate-100 dark:bg-surface-elevated text-slate-700 dark:text-text-secondary border border-slate-200 dark:border-border-subtle">
-                {caseId}
+                {currentCase.id}
               </span>
-              <StatusBadge 
-                status={executionState === "success" ? "recovered" : executionState === "blocked" ? "stopped" : "inProgress"} 
-                size="sm" 
-              />
+              <StatusBadge status={currentCase.status} size="sm" />
             </div>
             <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-              Payment Stream Event ID: <span className="font-mono text-slate-700 dark:text-text-secondary">evt_rzp_9941a8</span> • Customer: Priya Sharma
+              Payment Stream: <span className="font-mono text-slate-700 dark:text-text-secondary">{currentCase.paymentId}</span> • Customer: <span className="font-medium text-slate-800 dark:text-text-primary">{currentCase.customer}</span> ({currentCase.customerPhone})
             </p>
           </div>
         </div>
 
-        {/* Demo State Selector */}
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-400 dark:text-text-muted hidden sm:inline">Scenario:</span>
+        {/* Demo Scenario Selectors */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-slate-400 dark:text-text-muted hidden sm:inline mr-1 text-[11px] font-semibold uppercase">
+            Test Flow:
+          </span>
           <button 
-            onClick={handleResetDemo}
-            className={cn(
-              "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
-              executionState === "idle" 
-                ? "bg-brand text-white border-brand" 
-                : "bg-white dark:bg-surface text-slate-600 dark:text-text-muted border-slate-200 dark:border-border-subtle hover:bg-slate-50"
-            )}
+            onClick={() => handleRunScenario("success")}
+            disabled={isRecovered}
+            className="px-2.5 py-1 rounded text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100 transition-colors disabled:opacity-50"
+            title="Scenario A: High probability, policy approved, executes & recovers"
           >
-            Standard Plan
+            Scenario A (Success)
           </button>
           <button 
-            onClick={handlePolicyBlockDemo}
-            className={cn(
-              "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
-              executionState === "blocked" 
-                ? "bg-rose-600 text-white border-rose-600" 
-                : "bg-white dark:bg-surface text-slate-600 dark:text-text-muted border-slate-200 dark:border-border-subtle hover:bg-slate-50"
-            )}
+            onClick={() => handleRunScenario("block")}
+            className="px-2.5 py-1 rounded text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-100 transition-colors"
+            title="Scenario B: Policy rule fails, halts automated action & escalates"
           >
-            Policy Block
+            Scenario B (Policy Block)
           </button>
           <button 
-            onClick={handleTimeoutDemo}
-            className={cn(
-              "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
-              executionState === "timeout" 
-                ? "bg-amber-600 text-white border-amber-600" 
-                : "bg-white dark:bg-surface text-slate-600 dark:text-text-muted border-slate-200 dark:border-border-subtle hover:bg-slate-50"
-            )}
+            onClick={() => handleRunScenario("timeout")}
+            className="px-2.5 py-1 rounded text-xs font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40 hover:bg-amber-100 transition-colors"
+            title="Scenario C: Gateway verification times out, halts duplicate retry & escalates"
           >
-            Timeout
+            Scenario C (Timeout)
+          </button>
+          <button
+            onClick={resetDemoData}
+            className="p-1 rounded text-slate-500 hover:text-brand transition-colors"
+            title="Reset demo data"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -203,10 +186,10 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
           {LIFECYCLE_STEPS.map((step, idx) => {
             const isCompleted = idx <= lifecycleProgress && executionState !== "idle";
             const isCurrent = idx === lifecycleProgress && (executionState === "executing" || executionState === "verifying");
-            const isIdleCompleted = executionState === "idle" && idx <= 3;
+            const isIdlePassed = executionState === "idle" && idx <= 3;
             
             let icon = <span className="text-[10px] font-bold text-slate-400 dark:text-text-muted">{idx}</span>;
-            if (isIdleCompleted || (isCompleted && !isCurrent)) icon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+            if (isRecovered || (isCompleted && !isCurrent)) icon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
             if (isCurrent) icon = <div className="w-2 h-2 rounded-full bg-brand animate-ping" />;
             if (executionState === "timeout" && idx === 4) icon = <Clock className="w-3.5 h-3.5 text-amber-500" />;
             if (executionState === "blocked" && idx === 3) icon = <XCircle className="w-3.5 h-3.5 text-rose-500" />;
@@ -215,17 +198,17 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
               <div key={step.key} className="flex flex-col items-center gap-2 relative">
                 <div className={cn(
                   "w-7 h-7 rounded-full flex items-center justify-center border-2 bg-white dark:bg-surface transition-all duration-300",
-                  isIdleCompleted || isCompleted || isCurrent 
+                  isIdlePassed || isCompleted || isCurrent 
                     ? "border-brand shadow-sm bg-brand/5 dark:bg-brand-muted" 
                     : "border-slate-200 dark:border-border-subtle",
                   executionState === "blocked" && idx === 3 ? "border-rose-500 bg-rose-50 dark:bg-rose-950/40" : "",
-                  executionState === "success" && idx === 6 ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40" : ""
+                  (executionState === "success" || isRecovered) && idx === 6 ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40" : ""
                 )}>
                   {icon}
                 </div>
                 <span className={cn(
                   "text-[11px] font-semibold tracking-tight hidden sm:block whitespace-nowrap",
-                  isIdleCompleted || isCompleted || isCurrent ? "text-slate-900 dark:text-text-primary" : "text-slate-400 dark:text-text-muted"
+                  isIdlePassed || isCompleted || isCurrent ? "text-slate-900 dark:text-text-primary" : "text-slate-400 dark:text-text-muted"
                 )}>
                   {step.label}
                 </span>
@@ -237,7 +220,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
         <div className="absolute top-[31px] sm:top-[35px] left-8 right-8 h-[2px] bg-slate-100 dark:bg-surface-elevated -z-0">
           <div 
             className="h-full bg-brand transition-all duration-500 ease-out"
-            style={{ width: `${Math.max(0, (executionState === "idle" ? 3 : lifecycleProgress) / 6) * 100}%` }}
+            style={{ width: `${Math.max(0, (lifecycleProgress / 6)) * 100}%` }}
           />
         </div>
       </div>
@@ -255,14 +238,17 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
             <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
               <div>
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-text-muted">
-                  Transaction at Risk
+                  {isRecovered ? "Revenue Recovered" : "Transaction at Risk"}
                 </span>
                 <div className="mt-2 flex items-baseline justify-between">
-                  <span className="text-3xl font-bold tabular-nums tracking-tight text-slate-900 dark:text-text-primary">
-                    ₹8,499
+                  <span className={cn(
+                    "text-3xl font-bold tabular-nums tracking-tight",
+                    isRecovered ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-text-primary"
+                  )}>
+                    {formatCurrency(currentCase.amount)}
                   </span>
                   <span className="text-xs font-semibold text-rose-600 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded border border-rose-200/60 dark:border-rose-900/40">
-                    UPI Timeout
+                    {currentCase.failure}
                   </span>
                 </div>
               </div>
@@ -270,19 +256,23 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
               <div className="mt-5 pt-4 border-t border-slate-100 dark:border-border-subtle space-y-2.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-slate-500 dark:text-text-muted">Payment ID</span>
-                  <span className="font-mono text-slate-800 dark:text-text-primary font-medium">pay_P4qX92vLmK0</span>
+                  <span className="font-mono text-slate-800 dark:text-text-primary font-medium">{currentCase.paymentId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-text-muted">Payment Method</span>
+                  <span className="text-slate-800 dark:text-text-primary font-medium">{currentCase.paymentMethod} ({currentCase.bank || "Gateway"})</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500 dark:text-text-muted">Customer</span>
-                  <span className="text-slate-800 dark:text-text-primary font-medium">Priya Sharma</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-text-muted">Issuing Gateway</span>
-                  <span className="text-slate-800 dark:text-text-primary font-medium">HDFC UPI Stack</span>
+                  <span className="text-slate-800 dark:text-text-primary font-medium">{currentCase.customer}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 dark:text-text-muted">Recovery Probability</span>
-                  <ProbabilityMeter probability={0.81} />
+                  <ProbabilityMeter probability={currentCase.prob} />
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-text-muted">Expected Recovery</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-text-primary">{formatCurrency(currentCase.expected)}</span>
                 </div>
               </div>
             </div>
@@ -292,22 +282,30 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
               <div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wider text-brand flex items-center gap-1.5">
-                    <BrainCircuit className="w-3.5 h-3.5" /> AI Recommendation
+                    <BrainCircuit className="w-3.5 h-3.5" /> AI Recommendation (Layer 2)
                   </span>
-                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded">
-                    94% Confidence
+                  <span className={cn(
+                    "text-[10px] font-semibold px-2 py-0.5 rounded",
+                    aiDecision.confidence === "High Confidence" && "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40",
+                    aiDecision.confidence === "Medium Confidence" && "text-amber-600 bg-amber-50 dark:bg-amber-950/40",
+                    aiDecision.confidence === "Low Confidence" && "text-rose-600 bg-rose-50 dark:bg-rose-950/40"
+                  )}>
+                    {aiDecision.confidence}
                   </span>
                 </div>
                 <div className="mt-3 p-3.5 bg-slate-50 dark:bg-surface-elevated/70 border border-slate-200/60 dark:border-border-subtle rounded-lg text-xs leading-relaxed text-slate-700 dark:text-text-secondary">
-                  "UPI timeout is classified as temporary infrastructure latency. HDFC node traffic normalized 12 minutes ago. Recommend immediate Razorpay test retry followed by payment link fallback."
+                  <p className="font-semibold text-slate-900 dark:text-text-primary mb-1">
+                    Strategy: {aiDecision.recommendedAction}
+                  </p>
+                  <p>{aiDecision.conciseReason}</p>
                 </div>
               </div>
 
               <div className="mt-4 pt-3 border-t border-slate-100 dark:border-border-subtle flex items-center justify-between text-xs text-slate-500 dark:text-text-muted">
                 <span className="flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Triage passed
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Triage synthesized
                 </span>
-                <span className="font-mono text-[11px]">LangGraph v2.4</span>
+                <span className="font-mono text-[11px]">Root Cause: {currentCase.failure}</span>
               </div>
             </div>
 
@@ -318,14 +316,14 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-                  Multi-Stage Recovery Plan
+                  Multi-Stage Recovery Sequence
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-                  Ordered fallback hierarchy with policy bounds
+                  Ordered bounded fallback hierarchy
                 </p>
               </div>
               <span className="text-[11px] font-mono font-medium text-slate-500">
-                Step 1 of 3
+                Action: {currentCase.strategy}
               </span>
             </div>
 
@@ -339,10 +337,10 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 </div>
                 <div className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-                  Razorpay Retry
+                  {currentCase.strategy}
                 </div>
                 <p className="text-xs text-slate-600 dark:text-text-muted mt-1 leading-snug">
-                  Immediate idempotent retry via Razorpay test endpoint.
+                  Idempotent intervention via {currentCase.paymentMethod} gateway endpoint.
                 </p>
               </div>
 
@@ -355,10 +353,10 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
                 </div>
                 <div className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-                  Payment Link
+                  Payment Link Nudge
                 </div>
                 <p className="text-xs text-slate-500 dark:text-text-muted mt-1 leading-snug">
-                  Send personalized WhatsApp / SMS payment link with 24h validity.
+                  {aiDecision.fallbackPlan}
                 </p>
               </div>
 
@@ -374,85 +372,79 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   Human Escalation
                 </div>
                 <p className="text-xs text-slate-500 dark:text-text-muted mt-1 leading-snug">
-                  Route case to recovery agent queue if automated steps fail.
+                  {aiDecision.escalationPlan}
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Audit Timeline / Execution Ledger */}
+          {/* Audit Timeline / Execution Ledger for this case */}
           <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-                  Immutable Audit Ledger
+                  Case Execution Audit Ledger
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-                  Cryptographically verifiable execution trail
+                  Real-time events recorded for case {currentCase.id}
                 </p>
               </div>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-surface-elevated text-slate-500 border border-slate-200 dark:border-border-subtle">
-                SHA-256 Ledger
-              </span>
+              <Link 
+                href="/audit" 
+                className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
+              >
+                View Global Ledger <ExternalLink className="w-3 h-3" />
+              </Link>
             </div>
 
             <div className="space-y-0 pl-2">
-              <div className="relative pl-6 pb-5 border-l border-slate-200 dark:border-border-subtle">
-                <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
-                <div className="flex items-baseline justify-between text-xs">
-                  <span className="font-semibold text-slate-900 dark:text-text-primary">Layer 0: Webhook Ingested</span>
-                  <span className="font-mono text-slate-400 dark:text-text-muted text-[11px]">14:32:01 IST</span>
+              {caseAuditEvents.length === 0 ? (
+                <div className="text-xs text-slate-500 py-3">
+                  Initial intake recorded. Awaiting recovery execution.
                 </div>
-                <p className="text-xs text-slate-600 dark:text-text-secondary mt-0.5">
-                  Received payment.failed webhook for <span className="font-mono">pay_P4qX92vLmK0</span> from Razorpay.
-                </p>
-              </div>
+              ) : (
+                caseAuditEvents.map((evt, idx) => {
+                  const isLast = idx === caseAuditEvents.length - 1;
+                  const isSuccess = evt.event === "CASE_RESOLVED" || evt.event === "ACTION_SUCCEEDED";
+                  const isBlocked = evt.event === "POLICY_BLOCKED";
+                  const isTimeout = evt.event === "VERIFICATION_TIMEOUT";
 
-              <div className="relative pl-6 pb-5 border-l border-slate-200 dark:border-border-subtle">
-                <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
-                <div className="flex items-baseline justify-between text-xs">
-                  <span className="font-semibold text-slate-900 dark:text-text-primary">Layer 1: Risk Assessment</span>
-                  <span className="font-mono text-slate-400 dark:text-text-muted text-[11px]">14:32:02 IST</span>
-                </div>
-                <p className="text-xs text-slate-600 dark:text-text-secondary mt-0.5">
-                  Probability evaluated at 0.81, expected value ₹6,884. Passed priority triage threshold.
-                </p>
-              </div>
-
-              <div className="relative pl-6 pb-5 border-l border-slate-200 dark:border-border-subtle">
-                <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
-                <div className="flex items-baseline justify-between text-xs">
-                  <span className="font-semibold text-slate-900 dark:text-text-primary">Layer 2: AI Plan Synthesized</span>
-                  <span className="font-mono text-slate-400 dark:text-text-muted text-[11px]">14:32:05 IST</span>
-                </div>
-                <p className="text-xs text-slate-600 dark:text-text-secondary mt-0.5">
-                  Recovery strategy formulated: Immediate Retry → WhatsApp Payment Link fallback.
-                </p>
-              </div>
-
-              {executionState === "success" && (
-                <>
-                  <div className="relative pl-6 pb-5 border-l border-emerald-300 dark:border-emerald-800">
-                    <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-surface" />
-                    <div className="flex items-baseline justify-between text-xs">
-                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">Layer 4: Action Executed</span>
-                      <span className="font-mono text-emerald-600 dark:text-emerald-400 text-[11px]">Just now</span>
+                  return (
+                    <div 
+                      key={evt.id} 
+                      className={cn(
+                        "relative pl-6 pb-4 border-l",
+                        isSuccess ? "border-emerald-300 dark:border-emerald-800" :
+                        isBlocked ? "border-rose-300 dark:border-rose-800" :
+                        isTimeout ? "border-amber-300 dark:border-amber-800" :
+                        "border-slate-200 dark:border-border-subtle"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full ring-4 ring-white dark:ring-surface",
+                        isSuccess ? "bg-emerald-500" :
+                        isBlocked ? "bg-rose-500" :
+                        isTimeout ? "bg-amber-500" :
+                        "bg-slate-400"
+                      )} />
+                      <div className="flex items-baseline justify-between text-xs">
+                        <span className={cn(
+                          "font-semibold",
+                          isSuccess ? "text-emerald-700 dark:text-emerald-400" :
+                          isBlocked ? "text-rose-700 dark:text-rose-400" :
+                          isTimeout ? "text-amber-700 dark:text-amber-400" :
+                          "text-slate-900 dark:text-text-primary"
+                        )}>
+                          {evt.layer}: {evt.event}
+                        </span>
+                        <span className="font-mono text-slate-400 dark:text-text-muted text-[11px]">{evt.timestamp}</span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-text-secondary mt-0.5 leading-relaxed">
+                        {evt.desc}
+                      </p>
                     </div>
-                    <p className="text-xs text-emerald-600/90 dark:text-emerald-400/90 mt-0.5">
-                      POST /v1/payments/pay_P4qX92vLmK0/retry returned 200 OK.
-                    </p>
-                  </div>
-                  <div className="relative pl-6">
-                    <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-surface" />
-                    <div className="flex items-baseline justify-between text-xs">
-                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">Layer 5: Case Resolved</span>
-                      <span className="font-mono text-emerald-600 dark:text-emerald-400 text-[11px]">Just now</span>
-                    </div>
-                    <p className="text-xs text-emerald-600/90 dark:text-emerald-400/90 mt-0.5 font-medium">
-                      ₹8,499 recovered successfully. Ledger entry committed.
-                    </p>
-                  </div>
-                </>
+                  );
+                })
               )}
             </div>
           </div>
@@ -466,10 +458,10 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
               <div className="flex items-center gap-2">
                 <ShieldAlert className={cn(
                   "w-4 h-4",
-                  executionState === "blocked" ? "text-rose-500" : "text-emerald-500"
+                  policyResult.allowed ? "text-emerald-500" : "text-rose-500"
                 )} />
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-                  Policy Guardrails
+                  Policy Guardrails (Layer 3)
                 </h3>
               </div>
               <span className="text-[10px] font-mono uppercase font-semibold text-slate-400">
@@ -479,63 +471,48 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
 
             {/* Policy Checklist */}
             <div className="space-y-1 mb-6">
-              <PolicyCheck 
-                name="Max Retry Limit" 
-                value="1 / 3 attempts" 
-                status="pass" 
-              />
-              <PolicyCheck 
-                name="Retry Interval" 
-                value="45m elapsed" 
-                status="pass" 
-                description="Threshold: >= 30m required" 
-              />
-              <PolicyCheck 
-                name="Customer Contact Limit" 
-                value="0 / 2 today" 
-                status="pass" 
-              />
-              <PolicyCheck 
-                name="Auto-Action Value Cap" 
-                value="₹8,499 < ₹10k" 
-                status="pass" 
-              />
-              {executionState === "blocked" && (
-                <PolicyCheck 
-                  name="Cooldown Enforcement" 
-                  value="Triggered" 
-                  status="fail" 
-                  description="Case has active customer dispute flag" 
+              {policyResult.checks.map((chk) => (
+                <PolicyCheck
+                  key={chk.id}
+                  name={chk.name}
+                  value={chk.value}
+                  status={chk.status}
+                  description={chk.description}
                 />
-              )}
+              ))}
             </div>
 
             {/* Prominent Policy Verdict Banner */}
             <div className={cn(
               "rounded-lg p-3.5 mb-6 flex items-center justify-center font-bold text-xs tracking-wider uppercase border text-center transition-colors",
-              executionState === "blocked" 
-                ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/40" 
-                : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/40"
+              policyResult.allowed 
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/40"
+                : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/40"
             )}>
-              {executionState === "blocked" ? "POLICY BLOCKED • HUMAN REVIEW REQUIRED" : "✓ POLICY APPROVED FOR EXECUTION"}
+              {policyResult.allowed ? "✓ POLICY APPROVED FOR EXECUTION" : "✕ POLICY BLOCKED • HUMAN REVIEW REQUIRED"}
             </div>
 
             {/* Primary Action Button Area */}
             <div className="space-y-2.5">
-              {executionState === "idle" && (
+              {executionState === "idle" && !isRecovered && (
                 <>
-                  <button 
-                    onClick={handleStartExecute}
-                    className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand-hover text-white py-3 px-4 rounded-lg text-sm font-semibold transition-all shadow-sm hover:shadow active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-                  >
-                    <Play className="w-4 h-4 fill-current" />
-                    Execute Recovery Action
-                  </button>
-                  <button 
-                    className="w-full flex items-center justify-center gap-1.5 bg-slate-50 dark:bg-surface-elevated hover:bg-slate-100 dark:hover:bg-surface-highlight text-slate-700 dark:text-text-secondary border border-slate-200 dark:border-border-subtle py-2.5 px-4 rounded-lg text-xs font-medium transition-colors"
-                  >
-                    Modify Recovery Strategy
-                  </button>
+                  {policyResult.allowed ? (
+                    <button 
+                      onClick={handleStartExecute}
+                      className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand-hover text-white py-3 px-4 rounded-lg text-sm font-semibold transition-all shadow-sm hover:shadow active:scale-[0.98]"
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      Execute Recovery Action
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => escalateCase(currentCase.id, policyResult.blockedRules[0])}
+                      className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white py-3 px-4 rounded-lg text-sm font-semibold transition-all shadow-sm"
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      Escalate to Operations Desk
+                    </button>
+                  )}
                 </>
               )}
 
@@ -560,21 +537,15 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                 </button>
               )}
 
-              {executionState === "success" && (
+              {(executionState === "success" || isRecovered) && (
                 <div className="space-y-3 animate-in fade-in duration-200">
                   <div className="w-full flex items-center justify-between p-3.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-lg text-xs font-bold border border-emerald-200 dark:border-emerald-900/40">
                     <span className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4" />
-                      Recovered ₹8,499 • Case Resolved
+                      Recovered {formatCurrency(currentCase.amount)} • Case Resolved
                     </span>
                     <span className="font-mono text-[10px]">200 OK</span>
                   </div>
-                  <button 
-                    onClick={handleResetDemo}
-                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors py-1"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" /> Reset Scenario
-                  </button>
                 </div>
               )}
 
@@ -584,14 +555,8 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                     <div className="font-semibold flex items-center gap-1.5 mb-1">
                       <Clock className="w-3.5 h-3.5" /> Recovery Action Unconfirmed
                     </div>
-                    Gateway response latency exceeded 15s. Verification required — duplicate execution was prevented by idempotency key.
+                    Gateway response latency exceeded 30s. Bounded safety: duplicate execution halted. Case escalated to operations desk.
                   </div>
-                  <button 
-                    onClick={handleResetDemo}
-                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors py-1"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" /> Reset Scenario
-                  </button>
                 </div>
               )}
               
@@ -599,17 +564,11 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                 <div className="space-y-3 animate-in fade-in duration-200">
                   <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 rounded-lg text-xs text-rose-800 dark:text-rose-300">
                     <div className="font-semibold flex items-center gap-1.5 mb-1">
-                      <XCircle className="w-3.5 h-3.5" /> Action Blocked by Deterministic Policy
+                      <XCircle className="w-3.5 h-3.5" /> Action Blocked by Layer 3 Policy
                     </div>
-                    <strong>Reason:</strong> Maximum retry limit reached (3/3 attempts).<br />
-                    <strong>Recommended Next Action:</strong> Case escalated to human operations review.
+                    <strong>Reason:</strong> {policyResult.blockedRules[0] || "Policy guardrail failed."}<br />
+                    <strong>Recommended Next Action:</strong> Case escalated to human operations desk.
                   </div>
-                  <button 
-                    onClick={handleResetDemo}
-                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors py-1"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" /> Reset Scenario
-                  </button>
                 </div>
               )}
             </div>
@@ -630,15 +589,19 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
           <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-surface-elevated border border-slate-200/80 dark:border-border-subtle space-y-2.5">
             <div className="flex justify-between">
               <span className="text-slate-500">Case Identifier</span>
-              <span className="font-mono font-semibold text-slate-900 dark:text-text-primary">{caseId}</span>
+              <span className="font-mono font-semibold text-slate-900 dark:text-text-primary">{currentCase.id}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Customer</span>
+              <span className="font-semibold text-slate-900 dark:text-text-primary">{currentCase.customer}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Transaction Amount</span>
-              <span className="font-bold text-slate-900 dark:text-text-primary text-sm">₹8,499</span>
+              <span className="font-bold text-slate-900 dark:text-text-primary text-sm">{formatCurrency(currentCase.amount)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Selected Action</span>
-              <span className="font-medium text-brand">Razorpay Idempotent Retry</span>
+              <span className="font-medium text-brand">{currentCase.strategy}</span>
             </div>
             <div className="flex justify-between items-center pt-2 border-t border-slate-200/60 dark:border-border-subtle">
               <span className="text-slate-500">Deterministic Policy</span>
@@ -668,5 +631,3 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     </div>
   );
 }
-
-

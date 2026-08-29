@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { RecoveryTrendChart, FailureTypeChart } from "@/components/Charts";
 import { 
@@ -13,15 +13,11 @@ import {
   ArrowUpRight,
   ShieldCheck,
   Calendar,
-  Filter
+  Filter,
+  RotateCcw
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-
-const CHANNEL_PERFORMANCE = [
-  { channel: "Autonomous Razorpay Retry", volume: 142, recovered: 125, successRate: "88%", value: 684200, icon: CreditCard, color: "text-brand" },
-  { channel: "Hinglish SMS Payment Link", volume: 58, recovered: 42, successRate: "72%", value: 310500, icon: Smartphone, color: "text-emerald-500" },
-  { channel: "WhatsApp Conversational Link", volume: 25, recovered: 19, successRate: "76%", value: 185000, icon: MessageSquare, color: "text-amber-500" },
-];
+import { useReclaim } from "@/lib/context/ReclaimContext";
 
 const BANK_PERFORMANCE = [
   { bank: "HDFC Bank UPI", success: "91.2%", avgLatency: "1.4s", riskIndex: "Low" },
@@ -31,6 +27,77 @@ const BANK_PERFORMANCE = [
 ];
 
 export default function AnalyticsPage() {
+  const { cases, metrics, resetDemoData } = useReclaim();
+
+  // Dynamic failure type distribution
+  const chartFailureData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    cases.forEach((c) => {
+      counts[c.failureType] = (counts[c.failureType] || 0) + 1;
+    });
+
+    return Object.entries(counts)
+      .map(([name, count]) => ({
+        name,
+        count,
+        share: `${Math.round((count / cases.length) * 100)}%`,
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [cases]);
+
+  // Dynamic channel performance computed from cases
+  const channelPerformance = useMemo(() => {
+    let retryVol = 0, retryRec = 0, retryVal = 0;
+    let smsVol = 0, smsRec = 0, smsVal = 0;
+    let waVol = 0, waRec = 0, waVal = 0;
+
+    cases.forEach((c) => {
+      const isRecovered = c.status === "recovered";
+      const val = isRecovered ? (c.resolutionDetails?.recoveredAmount || c.amount) : 0;
+
+      if (c.strategy.includes("Retry") || c.paymentMethod === "UPI" || c.paymentMethod === "Subscription Mandate") {
+        retryVol++;
+        if (isRecovered) { retryRec++; retryVal += val; }
+      } else if (c.strategy.includes("SMS") || c.paymentMethod === "Netbanking") {
+        smsVol++;
+        if (isRecovered) { smsRec++; smsVal += val; }
+      } else {
+        waVol++;
+        if (isRecovered) { waRec++; waVal += val; }
+      }
+    });
+
+    return [
+      { 
+        channel: "Autonomous Razorpay Retry", 
+        volume: retryVol, 
+        recovered: retryRec, 
+        successRate: retryVol > 0 ? `${Math.round((retryRec / retryVol) * 100)}%` : "0%", 
+        value: retryVal, 
+        icon: CreditCard, 
+        color: "text-brand" 
+      },
+      { 
+        channel: "Hinglish SMS Payment Link", 
+        volume: smsVol, 
+        recovered: smsRec, 
+        successRate: smsVol > 0 ? `${Math.round((smsRec / smsVol) * 100)}%` : "0%", 
+        value: smsVal, 
+        icon: Smartphone, 
+        color: "text-emerald-500" 
+      },
+      { 
+        channel: "WhatsApp Conversational Link", 
+        volume: waVol, 
+        recovered: waRec, 
+        successRate: waVol > 0 ? `${Math.round((waRec / waVol) * 100)}%` : "0%", 
+        value: waVal, 
+        icon: MessageSquare, 
+        color: "text-amber-500" 
+      },
+    ];
+  }, [cases]);
+
   return (
     <div className="space-y-8 animate-in fade-in duration-300 pb-16">
       
@@ -42,7 +109,7 @@ export default function AnalyticsPage() {
               Analytics & Insights
             </h1>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-surface-elevated text-slate-700 dark:text-text-secondary border border-slate-200 dark:border-border-subtle">
-              Live Cohorts
+              Live Cohorts ({cases.length} cases)
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
@@ -50,8 +117,14 @@ export default function AnalyticsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button 
+            onClick={resetDemoData}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Reset Demo
+          </button>
           <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm">
-            <Calendar className="w-3.5 h-3.5" /> Last 30 Days
+            <Calendar className="w-3.5 h-3.5" /> Live Stream (24h)
           </button>
         </div>
       </div>
@@ -60,11 +133,11 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         <MetricCard
           title="Gross Recovery Yield"
-          value="₹18.42L"
-          trend="18.2%"
+          value={formatCurrency(metrics.revenueRecovered)}
+          trend="+18.2%"
           trendUp={true}
           valueClassName="text-status-recovered"
-          subtitle="Net revenue captured this cycle"
+          subtitle={`${metrics.recoveredCount} cases settled`}
         />
         <MetricCard
           title="Mean Time to Recover"
@@ -75,8 +148,8 @@ export default function AnalyticsPage() {
         />
         <MetricCard
           title="Channel Efficiency"
-          value="84.6%"
-          trend="3.1%"
+          value={`${metrics.recoveryRate}%`}
+          trend="+3.1%"
           trendUp={true}
           subtitle="Intervention resolution rate"
         />
@@ -93,13 +166,13 @@ export default function AnalyticsPage() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-                Recovery Trajectory by Hour
+                Recovery Trajectory
               </h3>
               <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-                Hourly throughput of recovered vs attempted revenue
+                Intraday throughput of recovered vs attempted revenue
               </p>
             </div>
-            <span className="text-xs font-mono text-slate-400">P95: 24h cycle</span>
+            <span className="text-xs font-mono text-slate-400">Live Cycle</span>
           </div>
           <RecoveryTrendChart />
         </div>
@@ -113,7 +186,7 @@ export default function AnalyticsPage() {
               Breakdown by issuing bank error code
             </p>
           </div>
-          <FailureTypeChart />
+          <FailureTypeChart data={chartFailureData} />
         </div>
       </div>
 
@@ -125,7 +198,7 @@ export default function AnalyticsPage() {
               Intervention Channel Breakdown
             </h3>
             <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-              Effectiveness of each autonomous recovery modality
+              Effectiveness of each autonomous recovery modality in the live stream
             </p>
           </div>
         </div>
@@ -142,7 +215,7 @@ export default function AnalyticsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
-              {CHANNEL_PERFORMANCE.map((row) => (
+              {channelPerformance.map((row) => (
                 <tr key={row.channel} className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors">
                   <td className="py-4 px-4 sm:px-6 font-medium text-slate-900 dark:text-text-primary flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-surface-elevated flex items-center justify-center flex-shrink-0">
@@ -208,4 +281,3 @@ export default function AnalyticsPage() {
     </div>
   );
 }
-

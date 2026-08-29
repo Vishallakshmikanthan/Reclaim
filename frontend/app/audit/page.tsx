@@ -1,45 +1,51 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
-import { Search, Filter, Download, ArrowUpDown, ShieldCheck, Clock, ExternalLink } from "lucide-react";
+import { Search, Filter, Download, ArrowUpDown, ShieldCheck, Clock, ExternalLink, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 import { EmptyState } from "@/components/ui/EmptyState";
-
-const AUDIT_EVENTS = [
-  { id: "EV-99234", timestamp: "Oct 24, 14:32:05.120", layer: "LAYER 5", event: "CASE_RESOLVED", case: "RC-2024-081", desc: "₹8,499 recovered successfully via Razorpay test retry transaction.", latency: "12ms" },
-  { id: "EV-99233", timestamp: "Oct 24, 14:32:04.890", layer: "LAYER 4", event: "ACTION_SUCCEEDED", case: "RC-2024-081", desc: "Razorpay POST /payments/pay_P4qX92vLmK0/retry response 200 OK captured.", latency: "245ms" },
-  { id: "EV-99232", timestamp: "Oct 24, 14:32:02.140", layer: "LAYER 4", event: "ACTION_EXECUTED", case: "RC-2024-081", desc: "Executing Primary Action: Razorpay Payment Retry with idempotency key.", latency: "18ms" },
-  { id: "EV-99231", timestamp: "Oct 24, 14:32:01.002", layer: "LAYER 3", event: "POLICY_APPROVED", case: "RC-2024-081", desc: "All 6 deterministic policy rules passed. Auto-action value below ₹10k threshold.", latency: "3ms" },
-  { id: "EV-99230", timestamp: "Oct 24, 14:31:59.420", layer: "LAYER 2", event: "AGENT_DECISION", case: "RC-2024-081", desc: "LangGraph engine synthesized 3-stage plan: Immediate Retry → Payment Link → Escalation.", latency: "420ms" },
-  { id: "EV-99229", timestamp: "Oct 24, 14:31:58.110", layer: "LAYER 1", event: "RISK_SCORED", case: "RC-2024-081", desc: "ML Triage: Recovery probability 0.81, Expected Value ₹6,884. Priority: HIGH.", latency: "15ms" },
-  { id: "EV-99228", timestamp: "Oct 24, 14:31:55.040", layer: "LAYER 0", event: "CASE_CREATED", case: "RC-2024-081", desc: "Ingested payment.failed webhook for ₹8,499 from Razorpay test stream.", latency: "8ms" },
-  { id: "EV-99227", timestamp: "Oct 24, 14:15:02.810", layer: "LAYER 3", event: "POLICY_BLOCKED", case: "RC-2024-075", desc: "Action blocked: Maximum Retry Count Exceeded (3/3 attempts reached).", latency: "2ms" },
-  { id: "EV-99226", timestamp: "Oct 24, 14:15:03.020", layer: "LAYER 5", event: "CASE_ESCALATED", case: "RC-2024-075", desc: "Case escalated to manual operations desk due to policy lock.", latency: "10ms" },
-];
+import { useReclaim } from "@/lib/context/ReclaimContext";
 
 export default function AuditTrailPage() {
+  const { auditEvents, resetDemoData } = useReclaim();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [layerFilter, setLayerFilter] = useState("ALL");
 
-  const filteredEvents = AUDIT_EVENTS.filter((e) => {
-    const matchesSearch = 
-      e.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      e.case.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      e.event.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      e.desc.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesLayer = layerFilter === "ALL" || e.layer === layerFilter;
-    return matchesSearch && matchesLayer;
-  });
+  const filteredEvents = useMemo(() => {
+    return auditEvents.filter((e) => {
+      const term = searchTerm.toLowerCase();
+      const matchesSearch = 
+        e.id.toLowerCase().includes(term) ||
+        e.case.toLowerCase().includes(term) ||
+        e.event.toLowerCase().includes(term) ||
+        e.desc.toLowerCase().includes(term);
+      
+      const matchesLayer = layerFilter === "ALL" || e.layer === layerFilter;
+      return matchesSearch && matchesLayer;
+    });
+  }, [auditEvents, searchTerm, layerFilter]);
 
   const handleExportCSV = () => {
+    const headers = "Event ID,Timestamp,Layer,Event Type,Case ID,Latency,Description\n";
+    const rows = filteredEvents.map(e => 
+      `${e.id},"${e.timestamp}","${e.layer}","${e.event}","${e.case}","${e.latency || ''}","${e.desc.replace(/"/g, '""')}"`
+    ).join("\n");
+    
+    const blob = new Blob([headers + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `reclaim_audit_ledger_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
     toast({
-      title: "Audit Export Initiated",
-      description: "Generating cryptographic audit ledger CSV (Layer 0–5)...",
-      type: "info"
+      title: "Audit Export Completed",
+      description: `Exported ${filteredEvents.length} cryptographic audit events to CSV.`,
+      type: "success"
     });
   };
 
@@ -63,6 +69,12 @@ export default function AuditTrailPage() {
         </div>
         <div className="flex items-center gap-2.5">
           <button 
+            onClick={resetDemoData}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Reset Demo
+          </button>
+          <button 
             onClick={handleExportCSV}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm active:scale-[0.98]"
           >
@@ -70,7 +82,6 @@ export default function AuditTrailPage() {
           </button>
         </div>
       </div>
-
 
       {/* 2. Main Ledger Container */}
       <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[580px]">
@@ -129,11 +140,11 @@ export default function AuditTrailPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
-                  <th className="py-3 px-4 sm:px-6">Timestamp (IST)</th>
+                  <th className="py-3 px-4 sm:px-6">Timestamp</th>
                   <th className="py-3 px-4">Layer</th>
                   <th className="py-3 px-4">Event Type</th>
                   <th className="py-3 px-4">Case ID</th>
-                  <th className="py-3 px-4">Execution Summary & Payload</th>
+                  <th className="py-3 px-4">Execution Summary & Evidence</th>
                   <th className="py-3 px-4 sm:px-6 text-right">Latency</th>
                 </tr>
               </thead>
@@ -158,7 +169,7 @@ export default function AuditTrailPage() {
                           ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" 
                           : row.event.includes("BLOCKED") || row.event.includes("FAILED") 
                           ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400" 
-                          : row.event.includes("ESCALATED") 
+                          : row.event.includes("ESCALATED") || row.event.includes("TIMEOUT")
                           ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" 
                           : "bg-indigo-50 text-indigo-700 dark:bg-brand-muted dark:text-brand"
                       )}>
@@ -184,7 +195,6 @@ export default function AuditTrailPage() {
           </div>
         )}
 
-
         {/* Footer */}
         <div className="p-3 border-t border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface text-xs text-slate-500 dark:text-text-muted flex items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-1.5">
@@ -192,7 +202,7 @@ export default function AuditTrailPage() {
             <span>Audit retention period: 7 Years (PCI-DSS & RBI FinTech Compliance)</span>
           </div>
           <div className="font-mono text-[11px]">
-            Node Hash: #7f0a9b23
+            Immutable Ledger ({auditEvents.length} total events)
           </div>
         </div>
 
@@ -201,4 +211,3 @@ export default function AuditTrailPage() {
     </div>
   );
 }
-

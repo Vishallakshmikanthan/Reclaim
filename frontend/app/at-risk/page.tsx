@@ -1,76 +1,109 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Search, 
   Filter, 
   SlidersHorizontal, 
   ArrowUpDown, 
-  ArrowRight,
-  AlertTriangle,
-  Download,
-  RefreshCw,
-  Clock,
-  X,
-  Sliders,
-  Info
+  ArrowRight, 
+  AlertTriangle, 
+  Download, 
+  RefreshCw, 
+  Clock, 
+  X, 
+  RotateCcw,
+  Sparkles,
+  ChevronDown
 } from "lucide-react";
 import { ProbabilityMeter } from "@/components/ui/ProbabilityMeter";
-import { StatusBadge, StatusType } from "@/components/ui/StatusBadge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { CaseDrawer } from "@/components/CaseDrawer";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
 import { formatCurrency } from "@/lib/utils";
-
-const CASES = [
-  { id: "RC-2024-001", customer: "Priya S.", failure: "UPI Timeout", amount: 849900, prob: 0.81, expected: 688400, status: "inProgress" as StatusType, age: "12m", action: "Review & Execute", paymentId: "pay_P4qX92vLmK0", strategy: "Razorpay Retry" },
-  { id: "RC-2024-002", customer: "Rahul M.", failure: "Card Decline", amount: 1250000, prob: 0.35, expected: 437500, status: "escalated" as StatusType, age: "25m", action: "Review Plan", paymentId: "pay_R8kL92vNmQ1", strategy: "WhatsApp Link" },
-  { id: "RC-2024-003", customer: "Anita K.", failure: "Insufficient Funds", amount: 450000, prob: 0.45, expected: 202500, status: "atRisk" as StatusType, age: "1h", action: "Send Nudge", paymentId: "pay_A2kL01vXmP4", strategy: "SMS Nudge" },
-  { id: "RC-2024-004", customer: "Vikram B.", failure: "Checkout Abandonment", amount: 1899900, prob: 0.30, expected: 569900, status: "recovered" as StatusType, age: "2h", action: "View Case", paymentId: "pay_V7bL91qXmZ8", strategy: "Dynamic Link" },
-  { id: "RC-2024-005", customer: "Neha T.", failure: "Bank Downtime", amount: 350000, prob: 0.80, expected: 280000, status: "recovered" as StatusType, age: "3h", action: "View Case", paymentId: "pay_N9kL82vQmP9", strategy: "Delayed Retry" },
-  { id: "RC-2024-006", customer: "Arjun D.", failure: "Fraud Signal", amount: 5500000, prob: 0.02, expected: 110000, status: "stopped" as StatusType, age: "4h", action: "Policy Audit", paymentId: "pay_A1dL44vKmR0", strategy: "Manual Audit" },
-  { id: "RC-2024-007", customer: "Sanjay R.", failure: "UPI Timeout", amount: 120000, prob: 0.75, expected: 90000, status: "inProgress" as StatusType, age: "4h", action: "Review & Execute", paymentId: "pay_S3rL19vJmK2", strategy: "Razorpay Retry" },
-];
-
-const TABS = [
-  { name: "All Cases", count: "225" },
-  { name: "High Priority", count: "14" },
-  { name: "Recovery Ready", count: "28" },
-  { name: "Human Review", count: "8" },
-  { name: "Escalated", count: "12" },
-  { name: "Stopped", count: "5" },
-  { name: "Recovered", count: "158" },
-];
+import { useReclaim } from "@/lib/context/ReclaimContext";
+import { Case, FailureType } from "@/lib/types";
 
 export default function AtRiskPage() {
-  const router = useRouter();
+  const { cases, metrics, resetDemoData } = useReclaim();
   const { toast } = useToast();
+  
   const [activeTab, setActiveTab] = useState("All Cases");
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCase, setSelectedCase] = useState<typeof CASES[0] | null>(null);
+  const [failureFilter, setFailureFilter] = useState<string>("ALL");
+  const [sortBy, setSortBy] = useState<"expected_desc" | "amount_desc" | "amount_asc" | "prob_desc" | "newest">("expected_desc");
+  const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  const filteredCases = CASES.filter((c) => {
-    const matchesSearch = 
-      c.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.failure.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    if (!matchesSearch) return false;
+  // Dynamic tab counts based on live context
+  const tabCounts = useMemo(() => {
+    return {
+      all: cases.length,
+      highPriority: cases.filter((c) => c.prob >= 0.7 && c.status !== "recovered").length,
+      recoveryReady: cases.filter((c) => c.status === "inProgress").length,
+      humanReview: cases.filter((c) => c.status === "atRisk").length,
+      escalated: cases.filter((c) => c.status === "escalated").length,
+      stopped: cases.filter((c) => c.status === "stopped").length,
+      recovered: cases.filter((c) => c.status === "recovered").length,
+    };
+  }, [cases]);
 
-    if (activeTab === "High Priority") return c.prob >= 0.7;
-    if (activeTab === "Recovery Ready") return c.status === "inProgress";
-    if (activeTab === "Human Review") return c.status === "atRisk";
-    if (activeTab === "Escalated") return c.status === "escalated";
-    if (activeTab === "Stopped") return c.status === "stopped";
-    if (activeTab === "Recovered") return c.status === "recovered";
+  const tabs = useMemo(() => [
+    { name: "All Cases", count: tabCounts.all.toString() },
+    { name: "High Priority", count: tabCounts.highPriority.toString() },
+    { name: "Recovery Ready", count: tabCounts.recoveryReady.toString() },
+    { name: "Human Review", count: tabCounts.humanReview.toString() },
+    { name: "Escalated", count: tabCounts.escalated.toString() },
+    { name: "Stopped", count: tabCounts.stopped.toString() },
+    { name: "Recovered", count: tabCounts.recovered.toString() },
+  ], [tabCounts]);
 
-    return true;
-  });
+  const filteredCases = useMemo(() => {
+    let result = cases.filter((c) => {
+      // Search filter
+      const term = searchTerm.toLowerCase();
+      const matchesSearch = 
+        c.id.toLowerCase().includes(term) ||
+        c.customer.toLowerCase().includes(term) ||
+        c.failure.toLowerCase().includes(term) ||
+        c.failureReason.toLowerCase().includes(term) ||
+        c.paymentId.toLowerCase().includes(term) ||
+        c.paymentMethod.toLowerCase().includes(term);
 
-  const handleRowClick = (caseItem: typeof CASES[0]) => {
+      if (!matchesSearch) return false;
+
+      // Failure type filter
+      if (failureFilter !== "ALL" && c.failureType !== failureFilter) {
+        return false;
+      }
+
+      // Tab filter
+      if (activeTab === "High Priority") return c.prob >= 0.7 && c.status !== "recovered";
+      if (activeTab === "Recovery Ready") return c.status === "inProgress";
+      if (activeTab === "Human Review") return c.status === "atRisk";
+      if (activeTab === "Escalated") return c.status === "escalated";
+      if (activeTab === "Stopped") return c.status === "stopped";
+      if (activeTab === "Recovered") return c.status === "recovered";
+
+      return true;
+    });
+
+    // Sorting
+    result.sort((a, b) => {
+      if (sortBy === "expected_desc") return b.expected - a.expected;
+      if (sortBy === "amount_desc") return b.amount - a.amount;
+      if (sortBy === "amount_asc") return a.amount - b.amount;
+      if (sortBy === "prob_desc") return b.prob - a.prob;
+      return 0; // newest
+    });
+
+    return result;
+  }, [cases, searchTerm, activeTab, failureFilter, sortBy]);
+
+  const handleRowClick = (caseItem: Case) => {
     setSelectedCase(caseItem);
     setIsDrawerOpen(true);
   };
@@ -78,10 +111,33 @@ export default function AtRiskPage() {
   const handleClearFilters = () => {
     setSearchTerm("");
     setActiveTab("All Cases");
+    setFailureFilter("ALL");
+    setSortBy("expected_desc");
     toast({
       title: "Filters Cleared",
       description: "Showing all active cases in the workspace.",
-      type: "info"
+      type: "info",
+    });
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Case ID,Customer,Amount (INR),Failure Type,Probability,Status,Payment ID\n";
+    const rows = filteredCases.map(c => 
+      `${c.id},"${c.customer}",${c.amount / 100},"${c.failure}",${c.prob},${c.status},${c.paymentId}`
+    ).join("\n");
+    
+    const blob = new Blob([headers + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `reclaim_cases_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Export Completed",
+      description: `Exported ${filteredCases.length} cases to CSV.`,
+      type: "success",
     });
   };
 
@@ -96,31 +152,27 @@ export default function AtRiskPage() {
               At-Risk Cases
             </h1>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40">
-              ₹25.0L at risk
+              {formatCurrency(metrics.revenueAtRisk)} at risk
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
-            Operational triage workspace for failed payments and intervention pipelines
+            Operational triage workspace for failed payments and autonomous intervention pipelines
           </p>
         </div>
         <div className="flex items-center gap-2.5">
           <button 
-            onClick={() => {
-              toast({ title: "Cases Refreshed", description: "Updated case feed from live gateway events.", type: "success" });
-            }}
+            onClick={resetDemoData}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
+            <RotateCcw className="w-3.5 h-3.5" />
+            Reset State
           </button>
           <button 
-            onClick={() => {
-              toast({ title: "Export Initiated", description: "Downloading active case ledger (CSV)...", type: "info" });
-            }}
+            onClick={handleExportCSV}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm"
           >
             <Download className="w-3.5 h-3.5" />
-            Export
+            Export CSV
           </button>
         </div>
       </div>
@@ -129,7 +181,9 @@ export default function AtRiskPage() {
       <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[580px]">
         
         {/* Controls Bar */}
-        <div className="p-3.5 sm:p-4 border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+        <div className="p-3.5 sm:p-4 border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+          
+          {/* Search Input */}
           <div className="flex items-center gap-2.5 flex-1 max-w-md">
             <div className="relative w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
@@ -137,7 +191,7 @@ export default function AtRiskPage() {
                 type="text" 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Filter by Case ID, Customer, or Failure reason..." 
+                placeholder="Search Case ID, Customer, Payment ID, Reason..." 
                 className="w-full pl-9 pr-8 py-1.5 text-xs bg-white dark:bg-canvas border border-slate-200 dark:border-border-subtle rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-900 dark:text-text-primary placeholder:text-slate-400 transition-colors shadow-sm"
               />
               {searchTerm && (
@@ -151,22 +205,58 @@ export default function AtRiskPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 self-end sm:self-auto text-xs text-slate-500 dark:text-text-muted">
-            {(searchTerm || activeTab !== "All Cases") && (
+          {/* Filter Dropdowns & Sorters */}
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Failure Type Filter */}
+            <select
+              value={failureFilter}
+              onChange={(e) => setFailureFilter(e.target.value)}
+              aria-label="Filter by Failure Type"
+              className="text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg px-2.5 py-1.5 focus:outline-none shadow-sm cursor-pointer"
+            >
+              <option value="ALL">All Failure Types</option>
+              <option value="UPI Timeout">UPI Timeout</option>
+              <option value="Card Decline">Card Decline</option>
+              <option value="Insufficient Funds">Insufficient Funds</option>
+              <option value="Bank Downtime">Bank Downtime</option>
+              <option value="Network Drop">Network Drop</option>
+              <option value="Checkout Abandonment">Checkout Abandonment</option>
+              <option value="Subscription Failure">Subscription Failure</option>
+              <option value="Overdue Invoice">Overdue Invoice</option>
+              <option value="Fraud Signal">Fraud Signal</option>
+            </select>
+
+            {/* Sort Sorter */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              aria-label="Sort Cases By"
+              className="text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg px-2.5 py-1.5 focus:outline-none shadow-sm cursor-pointer"
+            >
+              <option value="expected_desc">Sort: Highest Expected Value</option>
+              <option value="amount_desc">Sort: Highest Amount</option>
+              <option value="amount_asc">Sort: Lowest Amount</option>
+              <option value="prob_desc">Sort: Highest Probability</option>
+            </select>
+
+            {(searchTerm || activeTab !== "All Cases" || failureFilter !== "ALL") && (
               <button
                 onClick={handleClearFilters}
-                className="text-xs font-semibold text-brand hover:underline flex items-center gap-1"
+                className="text-xs font-semibold text-brand hover:underline flex items-center gap-1 ml-1"
               >
                 <X className="w-3.5 h-3.5" /> Clear filters
               </button>
             )}
-            <span>Showing <strong>{filteredCases.length}</strong> cases</span>
+
+            <span className="text-slate-500 dark:text-text-muted ml-1">
+              <strong>{filteredCases.length}</strong> cases
+            </span>
           </div>
         </div>
 
         {/* Operational Filter Tabs */}
         <div className="flex overflow-x-auto border-b border-slate-200/80 dark:border-border-subtle bg-white dark:bg-surface px-4 gap-1">
-          {TABS.map((tab) => {
+          {tabs.map((tab) => {
             const isSelected = activeTab === tab.name;
             return (
               <button
@@ -193,7 +283,7 @@ export default function AtRiskPage() {
 
         {/* Operational Case Table or Empty State */}
         {filteredCases.length === 0 ? (
-          <div className="p-8 flex-1 flex items-center justify-center">
+          <div className="p-12 flex-1 flex items-center justify-center">
             <EmptyState
               title="No cases match your filters"
               description="Try modifying your search keywords or switching back to 'All Cases'."
@@ -227,13 +317,21 @@ export default function AtRiskPage() {
                     className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors cursor-pointer group"
                   >
                     <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-slate-900 dark:text-text-primary group-hover:text-brand transition-colors">
-                      {row.id}
+                      <div className="flex items-center gap-1.5">
+                        {row.id}
+                        {row.demoScenario && (
+                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-brand/10 text-brand font-bold uppercase">
+                            Demo {row.demoScenario.slice(0, 1)}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-text-primary">
                       {row.customer}
                     </td>
                     <td className="py-3.5 px-4 text-slate-600 dark:text-text-secondary">
-                      {row.failure}
+                      <span className="font-semibold text-slate-800 dark:text-text-primary">{row.failure}</span>
+                      <span className="text-[11px] text-slate-400 block truncate max-w-[200px]">{row.failureReason}</span>
                     </td>
                     <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-text-primary tabular-nums text-right">
                       {formatCurrency(row.amount)}
@@ -258,7 +356,7 @@ export default function AtRiskPage() {
                         }}
                         className="inline-flex items-center gap-1 font-semibold text-brand hover:text-brand-hover text-xs group-hover:underline"
                       >
-                        {row.action}
+                        {row.status === "recovered" ? "View Case" : "Review & Execute"}
                         <ArrowRight className="w-3 h-3" />
                       </button>
                     </td>
@@ -273,10 +371,10 @@ export default function AtRiskPage() {
         <div className="p-3 border-t border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface text-xs text-slate-500 dark:text-text-muted flex items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-slate-400" />
-            <span>Click any case to inspect in quick slide-over drawer</span>
+            <span>Click any case to inspect recovery context & execute actions</span>
           </div>
           <div className="font-mono text-[11px]">
-            Triage Priority: Expected Value Descending
+            Sorted by: {sortBy.replace("_", " ").toUpperCase()}
           </div>
         </div>
 
@@ -292,5 +390,3 @@ export default function AtRiskPage() {
     </div>
   );
 }
-
-
