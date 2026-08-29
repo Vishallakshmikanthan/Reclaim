@@ -4,11 +4,23 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { RecoveryTrendChart, FailureTypeChart } from "@/components/Charts";
+import { RecoveryFunnel } from "@/components/RecoveryFunnel";
+import { PrioritizedOpportunities } from "@/components/PrioritizedOpportunities";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ProbabilityMeter } from "@/components/ui/ProbabilityMeter";
 import { CaseDrawer } from "@/components/CaseDrawer";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { formatCurrency, cn } from "@/lib/utils";
 import { useReclaim } from "@/lib/context/ReclaimContext";
+import { 
+  calculateRecoveryFunnel, 
+  calculateFailureTypeAnalysis, 
+  calculateInterventionPerformance, 
+  calculatePaymentMethodAnalysis, 
+  calculateCaseSizeDistribution, 
+  calculatePrioritizedOpportunities, 
+  generateMerchantInsights 
+} from "@/lib/metrics/metricsService";
 import { Case } from "@/lib/types";
 import { 
   ArrowUpRight, 
@@ -20,36 +32,65 @@ import {
   ChevronRight,
   RotateCcw,
   Zap,
-  Play,
+  TrendingUp,
   History,
-  ExternalLink
+  ExternalLink,
+  Info,
+  SlidersHorizontal,
+  Layers,
+  ArrowRight
 } from "lucide-react";
 
 export default function CommandCenter() {
   const { cases, auditEvents, metrics, resetDemoData } = useReclaim();
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [trendWindow, setTrendWindow] = useState<"24h" | "7d" | "30d" | "90d">("24h");
 
-  // Compute dynamic chart data from live cases dataset
-  const chartFailureData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    cases.forEach((c) => {
-      counts[c.failureType] = (counts[c.failureType] || 0) + 1;
-    });
+  // Deterministic calculations derived strictly from the live dataset
+  const funnelStages = useMemo(() => calculateRecoveryFunnel(cases), [cases]);
+  const failureAnalysis = useMemo(() => calculateFailureTypeAnalysis(cases), [cases]);
+  const interventionAnalysis = useMemo(() => calculateInterventionPerformance(cases), [cases]);
+  const paymentMethodAnalysis = useMemo(() => calculatePaymentMethodAnalysis(cases), [cases]);
+  const caseSizeDistribution = useMemo(() => calculateCaseSizeDistribution(cases), [cases]);
+  const prioritizedOpportunities = useMemo(() => calculatePrioritizedOpportunities(cases), [cases]);
+  const merchantInsights = useMemo(() => generateMerchantInsights(cases), [cases]);
 
-    return Object.entries(counts)
-      .map(([name, count]) => ({
-        name,
-        count,
-        share: `${Math.round((count / cases.length) * 100)}%`,
-      }))
-      .sort((a, b) => b.count - a.count);
-  }, [cases]);
-
+  // Compute dynamic chart data from live metrics and selected trend window
   const chartTrendData = useMemo(() => {
     const recoveredRupees = Math.round(metrics.revenueRecovered / 100);
     const atRiskRupees = Math.round(metrics.revenueAtRisk / 100);
-    
+
+    if (trendWindow === "7d") {
+      return [
+        { time: "Mon", recovered: Math.round(recoveredRupees * 0.35), atRisk: Math.round(atRiskRupees * 0.5) },
+        { time: "Tue", recovered: Math.round(recoveredRupees * 0.48), atRisk: Math.round(atRiskRupees * 0.62) },
+        { time: "Wed", recovered: Math.round(recoveredRupees * 0.60), atRisk: Math.round(atRiskRupees * 0.75) },
+        { time: "Thu", recovered: Math.round(recoveredRupees * 0.72), atRisk: Math.round(atRiskRupees * 0.85) },
+        { time: "Fri", recovered: Math.round(recoveredRupees * 0.85), atRisk: Math.round(atRiskRupees * 0.92) },
+        { time: "Sat", recovered: Math.round(recoveredRupees * 0.94), atRisk: Math.round(atRiskRupees * 0.98) },
+        { time: "Today", recovered: recoveredRupees, atRisk: atRiskRupees },
+      ];
+    }
+
+    if (trendWindow === "30d") {
+      return [
+        { time: "Week 1", recovered: Math.round(recoveredRupees * 0.22), atRisk: Math.round(atRiskRupees * 0.40) },
+        { time: "Week 2", recovered: Math.round(recoveredRupees * 0.50), atRisk: Math.round(atRiskRupees * 0.68) },
+        { time: "Week 3", recovered: Math.round(recoveredRupees * 0.78), atRisk: Math.round(atRiskRupees * 0.86) },
+        { time: "Week 4", recovered: recoveredRupees, atRisk: atRiskRupees },
+      ];
+    }
+
+    if (trendWindow === "90d") {
+      return [
+        { time: "Month 1", recovered: Math.round(recoveredRupees * 0.28), atRisk: Math.round(atRiskRupees * 0.45) },
+        { time: "Month 2", recovered: Math.round(recoveredRupees * 0.65), atRisk: Math.round(atRiskRupees * 0.80) },
+        { time: "Month 3", recovered: recoveredRupees, atRisk: atRiskRupees },
+      ];
+    }
+
+    // Default 24h Intraday Window
     return [
       { time: "00:00", recovered: Math.round(recoveredRupees * 0.15), atRisk: Math.round(atRiskRupees * 0.3) },
       { time: "04:00", recovered: Math.round(recoveredRupees * 0.25), atRisk: Math.round(atRiskRupees * 0.45) },
@@ -59,24 +100,28 @@ export default function CommandCenter() {
       { time: "20:00", recovered: Math.round(recoveredRupees * 0.95), atRisk: atRiskRupees },
       { time: "Now", recovered: recoveredRupees, atRisk: atRiskRupees },
     ];
-  }, [metrics.revenueRecovered, metrics.revenueAtRisk]);
+  }, [metrics.revenueRecovered, metrics.revenueAtRisk, trendWindow]);
+
+  const chartFailureData = useMemo(() => {
+    return failureAnalysis.map(f => ({
+      name: f.name,
+      count: f.casesCount,
+      share: `${f.shareOfAtRisk}%`,
+    }));
+  }, [failureAnalysis]);
 
   const handleRowClick = (caseItem: Case) => {
     setSelectedCase(caseItem);
     setIsDrawerOpen(true);
   };
 
-  const recentCases = useMemo(() => {
-    return cases.slice(0, 6);
-  }, [cases]);
-
-  // Derived Recent Activity Stream
+  // Derived Recent Activity Stream from live state
   const recentActivities = useMemo(() => {
     return auditEvents.slice(0, 4);
   }, [auditEvents]);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300 pb-16">
       
       {/* 1. Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2 border-b border-slate-200/60 dark:border-border-subtle">
@@ -110,93 +155,314 @@ export default function CommandCenter() {
         </div>
       </div>
 
-      {/* 2. Dominant KPI Cards Grid */}
+      {/* 2. Dominant Financial Story KPI Cards (Money First) */}
       <section aria-labelledby="kpi-heading">
-        <h2 id="kpi-heading" className="sr-only">Key Performance Indicators</h2>
+        <h2 id="kpi-heading" className="sr-only">Key Financial Indicators</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
           <MetricCard
-            title="Money at Risk"
+            title="Revenue At Risk"
             value={formatCurrency(metrics.revenueAtRisk)}
-            valueClassName="text-status-atRisk"
+            valueClassName="text-rose-600 dark:text-rose-400"
             subtitle={`Detected across ${metrics.activeAtRiskCount} active cases`}
             badge="Live Stream"
-            tooltip="Total volume of failed transactions in the live stream currently eligible for recovery"
+            tooltip="Total volume of failed transactions in the live stream currently eligible for recovery."
           />
           <MetricCard
-            title="Money Recovered"
+            title="Revenue Recovered"
             value={formatCurrency(metrics.revenueRecovered)}
-            trend="+12.5%"
+            trend="+14.2%"
             trendUp={true}
-            valueClassName="text-status-recovered"
-            subtitle={`${metrics.recoveredCount} cases successfully settled`}
-            badge="Razorpay"
-            tooltip="Gross transaction volume captured through autonomous retry and multi-channel links"
+            valueClassName="text-emerald-600 dark:text-emerald-400"
+            subtitle={`${metrics.recoveredCount} cases settled • avg ${formatCurrency(metrics.averageRecoveredAmount)}`}
+            badge="Razorpay Test"
+            tooltip="Verified transaction volume captured through autonomous retry and multi-channel links."
           />
           <MetricCard
             title="Recovery Rate"
             value={`${metrics.recoveryRate}%`}
             trend="+2.1%"
             trendUp={true}
-            subtitle="Across terminal outcome cases"
-            badge="High Precision"
-            tooltip="Percentage of recoverable failed transactions successfully captured"
+            subtitle={`Across ${metrics.recoveredCount + metrics.escalatedCount + metrics.stoppedCount} terminal cases`}
+            badge="Observed Rate"
+            tooltip="Percentage of eligible recovery cases successfully recovered."
           />
           <MetricCard
-            title="Cases Resolved"
-            value={`${metrics.casesResolvedRatio}%`}
-            subtitle={`${metrics.recoveredCount} recovered of ${metrics.totalCases} total`}
-            badge="Automated"
-            tooltip="Proportion of cases brought to resolution through bounded autonomous action or safe escalation"
+            title="Unrecovered Revenue"
+            value={formatCurrency(metrics.unrecoveredRevenue)}
+            subtitle={`${metrics.activeAtRiskCount + metrics.inProgressCount} cases awaiting intervention`}
+            badge="Actionable"
+            tooltip="Eligible revenue that remains unresolved and actively monitored by the decision engine."
           />
         </div>
       </section>
 
-      {/* 3. Visualizations Section (2/3 + 1/3 layout) */}
+      {/* 3. Dataset-Backed Merchant Insights Banner */}
+      {merchantInsights.length > 0 && (
+        <section className="bg-gradient-to-r from-indigo-50/70 via-white to-slate-50 dark:from-surface dark:via-surface-elevated/40 dark:to-surface border border-indigo-100 dark:border-border-subtle rounded-xl p-4 sm:p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="w-4 h-4 text-brand" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-text-secondary">
+              Merchant Revenue Intelligence
+            </h3>
+            <span className="text-[10px] text-slate-400 dark:text-text-muted font-mono">
+              (Live Dataset Observations)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {merchantInsights.map((insight) => (
+              <div 
+                key={insight.id}
+                className="p-3 rounded-lg bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-900 dark:text-text-primary mb-1">
+                    <span className="truncate pr-2">{insight.title}</span>
+                    {insight.metricHighlight && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-brand-muted/30 text-brand whitespace-nowrap">
+                        {insight.metricHighlight}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-text-muted leading-relaxed">
+                    {insight.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 4. End-to-End Recovery Funnel */}
+      <section>
+        <RecoveryFunnel stages={funnelStages} />
+      </section>
+
+      {/* 5. Visualizations Section (Recovery Trend + Failure Root Causes) */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Primary Chart: Recovery Performance */}
+        
+        {/* Primary Chart: Recovery Performance & Time Horizon */}
         <div className="lg:col-span-2 bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-                  Recovery Performance
+                  Recovery Throughput & Exposure Trend
                 </h3>
                 <span className="text-xs text-slate-400 dark:text-text-muted font-normal">
                   (Recovered vs At-Risk)
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-                Intraday throughput of recovered revenue vs baseline failure exposure
+                Observed recovery velocity relative to baseline incoming transaction failure exposure
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-500 dark:text-text-muted bg-slate-100 dark:bg-surface-elevated px-2.5 py-1 rounded-md">
-                Live 24h Window
-              </span>
+
+            {/* Time Window Selector */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-surface-elevated p-1 rounded-lg border border-slate-200/60 dark:border-border-subtle self-start sm:self-auto">
+              {(["24h", "7d", "30d", "90d"] as const).map((w) => (
+                <button
+                  key={w}
+                  onClick={() => setTrendWindow(w)}
+                  className={cn(
+                    "px-2.5 py-1 text-xs font-semibold rounded-md transition-all",
+                    trendWindow === w 
+                      ? "bg-white dark:bg-surface text-brand shadow-sm" 
+                      : "text-slate-500 dark:text-text-muted hover:text-slate-900 dark:hover:text-text-primary"
+                  )}
+                >
+                  {w.toUpperCase()}
+                </button>
+              ))}
             </div>
           </div>
+
           <div className="mt-4">
             <RecoveryTrendChart data={chartTrendData} />
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-border-subtle flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500 dark:text-text-muted">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                <span>Recovered: <strong>{formatCurrency(metrics.revenueRecovered)}</strong></span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                <span>At Risk: <strong>{formatCurrency(metrics.revenueAtRisk)}</strong></span>
+              </div>
+            </div>
+            <div>
+              Avg Time to Recovery: <strong>{metrics.averageTimeToRecoveryMin} min</strong> (Median: {metrics.medianTimeToRecoveryMin} min)
+            </div>
           </div>
         </div>
 
         {/* Secondary Chart: Failure Causes Breakdown */}
         <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-              Failure Root Causes
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                Failure Root Causes
+              </h3>
+              <Link 
+                href="/at-risk" 
+                className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
+              >
+                Explorer <ChevronRight className="w-3 h-3" />
+              </Link>
+            </div>
             <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-              Live breakdown across active cases
+              Volume distribution across active failure modes
             </p>
           </div>
+
           <div className="mt-4">
             <FailureTypeChart data={chartFailureData} />
           </div>
+
+          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-border-subtle text-[11px] text-slate-500 dark:text-text-muted">
+            Click any failure category in Case Explorer to filter active interventions.
+          </div>
         </div>
+
       </section>
 
-      {/* 4. Live Recovery Activity Stream Banner */}
+      {/* 6. Deep Financial Breakdown: Failure Types & Intervention Performance */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* Table 1: Revenue Lost by Failure Type */}
+        <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-slate-200/80 dark:border-border-subtle flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                Revenue Lost by Failure Type
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
+                Where merchant revenue is being lost across gateways
+              </p>
+            </div>
+            <span className="text-xs font-mono font-medium text-slate-500">
+              {failureAnalysis.length} Categories
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider">
+                  <th className="py-2.5 px-4">Failure Type</th>
+                  <th className="py-2.5 px-3 text-right">Cases</th>
+                  <th className="py-2.5 px-3 text-right">At Risk</th>
+                  <th className="py-2.5 px-3 text-right">Recovered</th>
+                  <th className="py-2.5 px-4 text-right">Recovery Rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
+                {failureAnalysis.map((f) => (
+                  <tr key={f.name} className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors">
+                    <td className="py-2.5 px-4 font-medium text-slate-900 dark:text-text-primary">
+                      <Link 
+                        href={`/at-risk?failure=${encodeURIComponent(f.name)}`}
+                        className="hover:text-brand hover:underline inline-flex items-center gap-1"
+                      >
+                        {f.name}
+                        <ArrowUpRight className="w-3 h-3 text-slate-400" />
+                      </Link>
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-slate-600 dark:text-text-secondary font-mono">
+                      {f.casesCount}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-semibold text-slate-900 dark:text-text-primary tabular-nums">
+                      {formatCurrency(f.revenueAtRisk)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      {formatCurrency(f.recoveredAmount)}
+                    </td>
+                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <span className={cn(
+                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                        f.observedRecoveryRate >= 70 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" :
+                        f.observedRecoveryRate >= 40 ? "bg-indigo-50 text-indigo-700 dark:bg-brand-muted dark:text-brand" :
+                        "bg-slate-100 text-slate-600 dark:bg-surface-elevated dark:text-text-muted"
+                      )}>
+                        {f.observedRecoveryRate}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Table 2: Intervention Performance */}
+        <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-slate-200/80 dark:border-border-subtle flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                Intervention Performance
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
+                Observed recovery rate by synthesized recovery strategy
+              </p>
+            </div>
+            <span className="text-xs font-mono font-medium text-slate-500">
+              {interventionAnalysis.length} Strategies
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider">
+                  <th className="py-2.5 px-4">Intervention</th>
+                  <th className="py-2.5 px-3 text-right">Cases</th>
+                  <th className="py-2.5 px-3 text-right">Recovered Vol.</th>
+                  <th className="py-2.5 px-4 text-right">Observed Rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
+                {interventionAnalysis.map((item) => (
+                  <tr key={item.name} className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors">
+                    <td className="py-2.5 px-4 font-medium text-slate-900 dark:text-text-primary">
+                      {item.name}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-slate-600 dark:text-text-secondary font-mono">
+                      {item.casesCount}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      {formatCurrency(item.recoveredRevenue)}
+                    </td>
+                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <span className={cn(
+                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                        item.observedRecoveryRate >= 70 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" :
+                        item.observedRecoveryRate >= 40 ? "bg-indigo-50 text-indigo-700 dark:bg-brand-muted dark:text-brand" :
+                        "bg-slate-100 text-slate-600 dark:bg-surface-elevated dark:text-text-muted"
+                      )}>
+                        {item.observedRecoveryRate}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      {/* 7. Highest Recovery Opportunities (Prioritized Queue) */}
+      <section>
+        <PrioritizedOpportunities 
+          opportunities={prioritizedOpportunities} 
+          onSelectCase={handleRowClick} 
+        />
+      </section>
+
+      {/* 8. Live Recovery Activity Stream Banner */}
       <section className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-4 sm:p-5 shadow-sm">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-border-subtle">
           <div className="flex items-center gap-2">
@@ -245,78 +511,7 @@ export default function CommandCenter() {
         </div>
       </section>
 
-      {/* 5. Primary Work Queue: High Priority Cases */}
-      <section className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden">
-        <div className="p-5 sm:px-6 border-b border-slate-200/80 dark:border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
-              High Priority At-Risk Cases
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
-              Failed payments ranked by gross value and algorithmic recovery probability
-            </p>
-          </div>
-          <Link
-            href="/at-risk"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:text-brand-hover transition-colors"
-          >
-            View all {cases.length} cases
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider">
-                <th className="py-3 px-4 sm:px-6">Case ID</th>
-                <th className="py-3 px-4">Customer</th>
-                <th className="py-3 px-4">Failure Reason</th>
-                <th className="py-3 px-4 text-right">Amount</th>
-                <th className="py-3 px-4">Recovery Prob.</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 sm:px-6 text-right">Age</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
-              {recentCases.map((row) => (
-                <tr 
-                  key={row.id} 
-                  onClick={() => handleRowClick(row)}
-                  className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors group cursor-pointer"
-                >
-                  <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-slate-900 dark:text-text-primary group-hover:text-brand transition-colors">
-                    <div className="flex items-center gap-1.5">
-                      {row.id}
-                      <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-brand" />
-                    </div>
-                  </td>
-                  <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-text-primary">
-                    {row.customer}
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600 dark:text-text-secondary">
-                    {row.failure}
-                  </td>
-                  <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-text-primary tabular-nums text-right">
-                    {formatCurrency(row.amount)}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <ProbabilityMeter probability={row.prob} />
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <StatusBadge status={row.status} size="sm" />
-                  </td>
-                  <td className="py-3.5 px-4 sm:px-6 text-right text-slate-400 dark:text-text-muted whitespace-nowrap">
-                    {row.age}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* 6. System Health & Infrastructure Status */}
+      {/* 9. System Health & Infrastructure Status */}
       <section className="bg-slate-50/50 dark:bg-surface/50 border border-slate-200/80 dark:border-border-subtle rounded-xl p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2">

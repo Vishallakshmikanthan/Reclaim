@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { 
   Search, 
   Filter, 
@@ -27,9 +27,10 @@ import { formatCurrency } from "@/lib/utils";
 import { useReclaim } from "@/lib/context/ReclaimContext";
 import { Case, FailureType } from "@/lib/types";
 
-export default function AtRiskPage() {
+function AtRiskContent() {
   const { cases, metrics, resetDemoData } = useReclaim();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
   
   const [activeTab, setActiveTab] = useState("All Cases");
   const [searchTerm, setSearchTerm] = useState("");
@@ -37,6 +38,18 @@ export default function AtRiskPage() {
   const [sortBy, setSortBy] = useState<"expected_desc" | "amount_desc" | "amount_asc" | "prob_desc" | "newest">("expected_desc");
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // Read URL query params (e.g. ?failure=UPI+Timeout or ?tab=Recovery+Ready)
+  useEffect(() => {
+    const failureParam = searchParams.get("failure");
+    const tabParam = searchParams.get("tab");
+    if (failureParam) {
+      setFailureFilter(failureParam);
+    }
+    if (tabParam) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   // Dynamic tab counts based on live context
   const tabCounts = useMemo(() => {
@@ -76,7 +89,7 @@ export default function AtRiskPage() {
       if (!matchesSearch) return false;
 
       // Failure type filter
-      if (failureFilter !== "ALL" && c.failureType !== failureFilter) {
+      if (failureFilter !== "ALL" && c.failureType !== failureFilter && c.failure !== failureFilter) {
         return false;
       }
 
@@ -136,27 +149,22 @@ export default function AtRiskPage() {
 
     toast({
       title: "Export Completed",
-      description: `Exported ${filteredCases.length} cases to CSV.`,
-      type: "success",
+      description: `Exported ${filteredCases.length} filtered cases to CSV.`,
+      type: "success"
     });
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-300 pb-16">
       
       {/* 1. Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2 border-b border-slate-200/60 dark:border-border-subtle">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-text-primary">
-              At-Risk Cases
-            </h1>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40">
-              {formatCurrency(metrics.revenueAtRisk)} at risk
-            </span>
-          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-text-primary">
+            Revenue at Risk Explorer
+          </h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
-            Operational triage workspace for failed payments and autonomous intervention pipelines
+            Autonomous triage queue prioritizing failed transactions by value, probability, and policy eligibility
           </p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -164,115 +172,39 @@ export default function AtRiskPage() {
             onClick={resetDemoData}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reset State
+            <RotateCcw className="w-3.5 h-3.5" /> Reset Demo
           </button>
           <button 
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm active:scale-[0.98]"
           >
-            <Download className="w-3.5 h-3.5" />
-            Export CSV
+            <Download className="w-3.5 h-3.5" /> Export CSV
           </button>
         </div>
       </div>
 
-      {/* 2. Main Workspace Container */}
+      {/* 2. Main Case Table Card */}
       <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[580px]">
         
-        {/* Controls Bar */}
-        <div className="p-3.5 sm:p-4 border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-          
-          {/* Search Input */}
-          <div className="flex items-center gap-2.5 flex-1 max-w-md">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-              <input 
-                type="text" 
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search Case ID, Customer, Payment ID, Reason..." 
-                className="w-full pl-9 pr-8 py-1.5 text-xs bg-white dark:bg-canvas border border-slate-200 dark:border-border-subtle rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-900 dark:text-text-primary placeholder:text-slate-400 transition-colors shadow-sm"
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Filter Dropdowns & Sorters */}
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            {/* Failure Type Filter */}
-            <select
-              value={failureFilter}
-              onChange={(e) => setFailureFilter(e.target.value)}
-              aria-label="Filter by Failure Type"
-              className="text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg px-2.5 py-1.5 focus:outline-none shadow-sm cursor-pointer"
-            >
-              <option value="ALL">All Failure Types</option>
-              <option value="UPI Timeout">UPI Timeout</option>
-              <option value="Card Decline">Card Decline</option>
-              <option value="Insufficient Funds">Insufficient Funds</option>
-              <option value="Bank Downtime">Bank Downtime</option>
-              <option value="Network Drop">Network Drop</option>
-              <option value="Checkout Abandonment">Checkout Abandonment</option>
-              <option value="Subscription Failure">Subscription Failure</option>
-              <option value="Overdue Invoice">Overdue Invoice</option>
-              <option value="Fraud Signal">Fraud Signal</option>
-            </select>
-
-            {/* Sort Sorter */}
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              aria-label="Sort Cases By"
-              className="text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg px-2.5 py-1.5 focus:outline-none shadow-sm cursor-pointer"
-            >
-              <option value="expected_desc">Sort: Highest Expected Value</option>
-              <option value="amount_desc">Sort: Highest Amount</option>
-              <option value="amount_asc">Sort: Lowest Amount</option>
-              <option value="prob_desc">Sort: Highest Probability</option>
-            </select>
-
-            {(searchTerm || activeTab !== "All Cases" || failureFilter !== "ALL") && (
-              <button
-                onClick={handleClearFilters}
-                className="text-xs font-semibold text-brand hover:underline flex items-center gap-1 ml-1"
-              >
-                <X className="w-3.5 h-3.5" /> Clear filters
-              </button>
-            )}
-
-            <span className="text-slate-500 dark:text-text-muted ml-1">
-              <strong>{filteredCases.length}</strong> cases
-            </span>
-          </div>
-        </div>
-
-        {/* Operational Filter Tabs */}
-        <div className="flex overflow-x-auto border-b border-slate-200/80 dark:border-border-subtle bg-white dark:bg-surface px-4 gap-1">
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-slate-200/80 dark:border-border-subtle overflow-x-auto bg-slate-50/50 dark:bg-surface px-2 sm:px-4">
           {tabs.map((tab) => {
-            const isSelected = activeTab === tab.name;
+            const isActive = activeTab === tab.name;
             return (
               <button
                 key={tab.name}
                 onClick={() => setActiveTab(tab.name)}
-                className={`flex items-center gap-2 py-3 px-3 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  isSelected
+                className={`py-3 px-3 sm:px-4 text-xs font-medium border-b-2 whitespace-nowrap transition-colors flex items-center gap-2 ${
+                  isActive
                     ? "border-brand text-brand font-semibold"
-                    : "border-transparent text-slate-500 hover:text-slate-800 dark:text-text-muted dark:hover:text-text-primary"
+                    : "border-transparent text-slate-500 dark:text-text-muted hover:text-slate-900 dark:hover:text-text-primary hover:border-slate-300 dark:hover:border-border-subtle"
                 }`}
               >
                 <span>{tab.name}</span>
-                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                  isSelected 
-                    ? "bg-brand/10 text-brand dark:bg-brand-muted" 
-                    : "bg-slate-100 dark:bg-surface-elevated text-slate-500"
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                  isActive 
+                    ? "bg-brand text-white font-bold" 
+                    : "bg-slate-200 dark:bg-surface-elevated text-slate-600 dark:text-text-muted font-normal"
                 }`}>
                   {tab.count}
                 </span>
@@ -281,15 +213,78 @@ export default function AtRiskPage() {
           })}
         </div>
 
-        {/* Operational Case Table or Empty State */}
+        {/* Filter & Search Bar */}
+        <div className="p-3.5 sm:p-4 border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/25 dark:bg-surface flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+          <div className="flex items-center gap-2.5 flex-1 max-w-lg">
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input 
+                type="text" 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search case ID, customer, payment ID, or failure reason..." 
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-white dark:bg-canvas border border-slate-200 dark:border-border-subtle rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-900 dark:text-text-primary placeholder:text-slate-400 transition-colors shadow-sm"
+              />
+            </div>
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm("")}
+                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-text-secondary"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-auto">
+            {/* Failure Mode Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Failure:</span>
+              <select 
+                value={failureFilter}
+                onChange={(e) => setFailureFilter(e.target.value)}
+                aria-label="Filter by failure mode"
+                className="text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg px-2.5 py-1.5 focus:outline-none shadow-sm cursor-pointer"
+              >
+                <option value="ALL">All Failure Modes</option>
+                <option value="UPI Timeout">UPI Timeout</option>
+                <option value="Card Decline">Card Decline</option>
+                <option value="Insufficient Funds">Insufficient Funds</option>
+                <option value="Bank Downtime">Bank Downtime</option>
+                <option value="Network Drop">Network Drop</option>
+                <option value="Checkout Abandonment">Checkout Abandonment</option>
+                <option value="Fraud Signal">Fraud Signal</option>
+              </select>
+            </div>
+
+            {/* Sort Dropdown */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Sort:</span>
+              <select 
+                value={sortBy}
+                onChange={(e: any) => setSortBy(e.target.value)}
+                aria-label="Sort cases"
+                className="text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg px-2.5 py-1.5 focus:outline-none shadow-sm cursor-pointer"
+              >
+                <option value="expected_desc">Expected Value (High to Low)</option>
+                <option value="amount_desc">Amount (High to Low)</option>
+                <option value="amount_asc">Amount (Low to High)</option>
+                <option value="prob_desc">Recovery Probability</option>
+                <option value="newest">Most Recent</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Case Table or Empty State */}
         {filteredCases.length === 0 ? (
-          <div className="p-12 flex-1 flex items-center justify-center">
+          <div className="p-8 flex-1 flex items-center justify-center">
             <EmptyState
               title="No cases match your filters"
-              description="Try modifying your search keywords or switching back to 'All Cases'."
+              description="Try adjusting your search query, switching tabs, or resetting filters."
               action={{
                 label: "Clear All Filters",
-                onClick: handleClearFilters
+                onClick: handleClearFilters,
               }}
             />
           </div>
@@ -298,15 +293,14 @@ export default function AtRiskPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
-                  <th className="py-3 px-4 sm:px-6">Case ID</th>
+                  <th className="py-3 px-4 sm:px-6">Case & ID</th>
                   <th className="py-3 px-4">Customer</th>
                   <th className="py-3 px-4">Failure Reason</th>
                   <th className="py-3 px-4 text-right">Amount</th>
-                  <th className="py-3 px-4">Recovery Prob</th>
+                  <th className="py-3 px-4">Recovery Prob.</th>
                   <th className="py-3 px-4 text-right">Expected Value</th>
                   <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Age</th>
-                  <th className="py-3 px-4 sm:px-6 text-right">Action</th>
+                  <th className="py-3 px-4 sm:px-6 text-right">Age</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
@@ -314,24 +308,30 @@ export default function AtRiskPage() {
                   <tr 
                     key={row.id} 
                     onClick={() => handleRowClick(row)}
-                    className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors cursor-pointer group"
+                    className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors group cursor-pointer"
                   >
                     <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-slate-900 dark:text-text-primary group-hover:text-brand transition-colors">
                       <div className="flex items-center gap-1.5">
                         {row.id}
-                        {row.demoScenario && (
-                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-brand/10 text-brand font-bold uppercase">
-                            Demo {row.demoScenario.slice(0, 1)}
-                          </span>
-                        )}
+                        <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-brand" />
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {row.paymentId}
                       </div>
                     </td>
                     <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-text-primary">
                       {row.customer}
+                      <div className="text-[10px] text-slate-400 font-normal mt-0.5">
+                        {row.paymentMethod}
+                      </div>
                     </td>
-                    <td className="py-3.5 px-4 text-slate-600 dark:text-text-secondary">
-                      <span className="font-semibold text-slate-800 dark:text-text-primary">{row.failure}</span>
-                      <span className="text-[11px] text-slate-400 block truncate max-w-[200px]">{row.failureReason}</span>
+                    <td className="py-3.5 px-4 text-slate-600 dark:text-text-secondary max-w-xs">
+                      <div className="font-semibold text-slate-900 dark:text-text-primary">
+                        {row.failure}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-text-muted truncate mt-0.5">
+                        {row.failureReason}
+                      </div>
                     </td>
                     <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-text-primary tabular-nums text-right">
                       {formatCurrency(row.amount)}
@@ -339,26 +339,14 @@ export default function AtRiskPage() {
                     <td className="py-3.5 px-4">
                       <ProbabilityMeter probability={row.prob} />
                     </td>
-                    <td className="py-3.5 px-4 text-slate-600 dark:text-text-muted tabular-nums font-mono text-right">
+                    <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 tabular-nums text-right">
                       {formatCurrency(row.expected)}
                     </td>
                     <td className="py-3.5 px-4">
                       <StatusBadge status={row.status} size="sm" />
                     </td>
-                    <td className="py-3.5 px-4 text-slate-400 dark:text-text-muted whitespace-nowrap">
+                    <td className="py-3.5 px-4 sm:px-6 text-right text-slate-400 dark:text-text-muted whitespace-nowrap">
                       {row.age}
-                    </td>
-                    <td className="py-3.5 px-4 sm:px-6 text-right">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRowClick(row);
-                        }}
-                        className="inline-flex items-center gap-1 font-semibold text-brand hover:text-brand-hover text-xs group-hover:underline"
-                      >
-                        {row.status === "recovered" ? "View Case" : "Review & Execute"}
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
                     </td>
                   </tr>
                 ))}
@@ -388,5 +376,13 @@ export default function AtRiskPage() {
       />
 
     </div>
+  );
+}
+
+export default function AtRiskPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-xs text-slate-500">Loading case explorer...</div>}>
+      <AtRiskContent />
+    </Suspense>
   );
 }
