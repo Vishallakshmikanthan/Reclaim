@@ -44,7 +44,18 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             {title}
           </h1>
         </div>
+
+        {/* Demo / Judge Mode Status Indicator */}
+        <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-950/20 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="font-bold tracking-tight uppercase text-[10px]">DEMO / TEST MODE</span>
+          <span className="text-slate-300 dark:text-slate-600">|</span>
+          <span className="text-slate-600 dark:text-slate-300 text-[10px] font-mono">Simulated Provider</span>
+          <span className="text-slate-300 dark:text-slate-600">•</span>
+          <span className="text-slate-600 dark:text-slate-300 text-[10px] font-mono">Deterministic / Nemotron AI</span>
+        </div>
       </div>
+
 
       <div className="flex items-center gap-2.5 sm:gap-4">
         {/* Search */}

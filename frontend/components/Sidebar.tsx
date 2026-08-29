@@ -42,7 +42,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     {
       title: "INTELLIGENCE",
       items: [
-        { name: "Evaluation", href: "/evaluation", icon: Sparkles, badge: "+42%" },
+        { name: "Evaluation", href: "/evaluation", icon: Sparkles, badge: "Offline n=50" },
         { name: "Analytics", href: "/analytics", icon: BarChart3 },
         { name: "Audit Trail", href: "/audit", icon: History },
       ]

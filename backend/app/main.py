@@ -207,3 +207,12 @@ def dashboard_metrics(svc:Services=Depends(get_services)):
 @app.get("/api/v1/system/health",response_model=SystemHealth)
 def system_health(): return SystemHealth(status="ok",services={name:"ready" for name in ["Decision Engine","Policy Engine","Recovery Executor","Verification","Audit","Communication","Campaign Orchestrator"]})
 
+@app.get("/api/v1/system/preflight", response_model=PreflightResponse)
+def system_preflight(svc: Services = Depends(get_services)):
+    return svc.preflight_check()
+
+@app.post("/api/v1/system/demo/reset", response_model=DemoResetResponse)
+def system_demo_reset(svc: Services = Depends(get_services)):
+    return svc.reset_demo_state()
+
+

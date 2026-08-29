@@ -93,6 +93,7 @@ interface ReclaimContextType {
   escalateCase: (caseId: string, reason?: string) => void;
   stopCase: (caseId: string, reason?: string) => void;
   resetDemoData: () => void;
+  refreshData: () => Promise<void>;
 
   // Campaign & Communication Actions
   runCampaignBatch: (campaignId: string) => Promise<boolean>;
@@ -1246,7 +1247,34 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     };
   }, [injectFailure, executeRecovery]);
 
-  const resetDemoData = useCallback(() => {
+  const resetDemoData = useCallback(async () => {
+    if (process.env.NEXT_PUBLIC_USE_MOCKS !== 'true') {
+      try {
+        const [apiCases, apiMetrics, apiAudit, apiPolicy, apiPolicyHistory] = await Promise.all([
+          services.caseRepo.resetToInitial(),
+          services.caseRepo.getDashboardMetrics(),
+          services.auditRepo.getAllEvents(),
+          services.policyRepo.getActivePolicy(),
+          services.policyRepo.getPolicyHistory(),
+        ]);
+        setCases(apiCases);
+        setServerMetrics(apiMetrics);
+        setAuditEvents(apiAudit);
+        setActivePolicy(apiPolicy);
+        setPolicyHistory(apiPolicyHistory);
+        setExecutionProgressMap({});
+        setSelectedCaseId(null);
+        BrowserStorage.clearAll();
+        toast({
+          title: "Demo State Reset",
+          description: "Database and client state cleanly restored to deterministic baseline.",
+          type: "info",
+        });
+        return;
+      } catch (e) {
+        console.warn("Backend reset call error, falling back to local reset:", e);
+      }
+    }
     setCases(INITIAL_MOCK_CASES);
     setAuditEvents(INITIAL_AUDIT_EVENTS);
     setCampaigns(INITIAL_CAMPAIGNS);
@@ -1264,6 +1292,27 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       type: "info",
     });
   }, [toast]);
+
+  const refreshData = useCallback(async () => {
+    if (process.env.NEXT_PUBLIC_USE_MOCKS !== 'true') {
+      try {
+        const [apiCases, apiMetrics, apiAudit, apiPolicy, apiPolicyHistory] = await Promise.all([
+          services.caseRepo.getAllCases(),
+          services.caseRepo.getDashboardMetrics(),
+          services.auditRepo.getAllEvents(),
+          services.policyRepo.getActivePolicy(),
+          services.policyRepo.getPolicyHistory(),
+        ]);
+        setCases(apiCases);
+        setServerMetrics(apiMetrics);
+        setAuditEvents(apiAudit);
+        setActivePolicy(apiPolicy);
+        setPolicyHistory(apiPolicyHistory);
+      } catch (e) {
+        console.warn("Failed to refresh data from API:", e);
+      }
+    }
+  }, []);
 
   return (
     <ReclaimContext.Provider
@@ -1295,6 +1344,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         escalateCase,
         stopCase,
         resetDemoData,
+        refreshData,
         runCampaignBatch,
         toggleCampaignStatus,
         createCampaign,

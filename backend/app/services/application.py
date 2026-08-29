@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 from ..core.config import get_settings
+settings = get_settings()
 from ..core.errors import (
     AppError,
     CaseNotFoundError,
@@ -1049,6 +1050,123 @@ class Services:
     def get_controlled_evaluation(self) -> ControlledEvaluationResponse:
         eval_engine = EvaluationExperimentEngine()
         return eval_engine.run_controlled_experiment(self.policy())
+
+    def reset_demo_state(self) -> DemoResetResponse:
+        count = self.repo.reset_demo()
+        return DemoResetResponse(
+            status="SUCCESS",
+            message=f"Deterministic demo environment reset successfully with {count} cases.",
+            cases_seeded=count,
+            policy_version="v1"
+        )
+
+    def preflight_check(self) -> PreflightResponse:
+        checks: list[PreflightCheckItem] = []
+        is_ready = True
+        db_connected = False
+
+        # 1. PostgreSQL & Schema verification
+        try:
+            self.repo.ensure_merchant()
+            db_connected = True
+            checks.append(PreflightCheckItem(
+                name="PostgreSQL Database",
+                status="READY",
+                details="PostgreSQL connection verified and operational."
+            ))
+        except Exception as e:
+            is_ready = False
+            checks.append(PreflightCheckItem(
+                name="PostgreSQL Database",
+                status="NOT_READY",
+                details=f"Database unreachable: {str(e)}"
+            ))
+
+        # 2. Migration & Schema Check
+        try:
+            pol = self.policy()
+            checks.append(PreflightCheckItem(
+                name="Database Migrations & Policies",
+                status="READY",
+                details=f"Active policy version: {pol.version}."
+            ))
+        except Exception as e:
+            is_ready = False
+            checks.append(PreflightCheckItem(
+                name="Database Migrations & Policies",
+                status="NOT_READY",
+                details=f"Schema / Policy error: {str(e)}"
+            ))
+
+        # 3. Seed Data Check
+        try:
+            demo_case = self.repo.get_case("case_demo_upi") or self.repo.get_case("case_demo_high_value")
+            if demo_case:
+                checks.append(PreflightCheckItem(
+                    name="Deterministic Seed Dataset",
+                    status="READY",
+                    details="Deterministic demo dataset is loaded."
+                ))
+            else:
+                checks.append(PreflightCheckItem(
+                    name="Deterministic Seed Dataset",
+                    status="WARNING",
+                    details="Seed dataset not yet initialized. Use demo reset to populate."
+                ))
+        except Exception as e:
+            checks.append(PreflightCheckItem(
+                name="Deterministic Seed Dataset",
+                status="WARNING",
+                details=f"Could not verify seed data: {str(e)}"
+            ))
+
+        # 4. Recovery Provider Configuration
+        provider_mode = settings.recovery_provider.upper()
+        if settings.recovery_provider == "razorpay_test":
+            if settings.razorpay_key_id and settings.razorpay_key_id.startswith("rzp_test_"):
+                checks.append(PreflightCheckItem(
+                    name="Payment Recovery Provider",
+                    status="READY",
+                    details="Razorpay Test Mode credentials configured."
+                ))
+            else:
+                checks.append(PreflightCheckItem(
+                    name="Payment Recovery Provider",
+                    status="WARNING",
+                    details="Razorpay Test Mode selected but test keys are incomplete."
+                ))
+        else:
+            checks.append(PreflightCheckItem(
+                name="Payment Recovery Provider",
+                status="READY",
+                details="Simulated recovery sandbox active (deterministic execution)."
+            ))
+
+        # 5. AI Provider & Fallback Configuration
+        ai_mode = "NEMOTRON" if (settings.ai_provider == "nemotron" and settings.nvidia_api_key) else "DETERMINISTIC_FALLBACK"
+        if settings.ai_provider == "nemotron" and settings.nvidia_api_key:
+            checks.append(PreflightCheckItem(
+                name="AI Intelligence Layer",
+                status="READY",
+                details=f"NVIDIA Nemotron connected ({settings.nvidia_nemotron_model}) with automatic deterministic fallback."
+            ))
+        else:
+            checks.append(PreflightCheckItem(
+                name="AI Intelligence Layer",
+                status="READY",
+                details="Deterministic rule-based AI fallback active (no external network dependency required)."
+            ))
+
+        summary = "All systems operational and ready for judge presentation." if is_ready else "Infrastructure issue detected. Check database status."
+        return PreflightResponse(
+            status="READY" if is_ready else "NOT_READY",
+            checks=checks,
+            summary=summary,
+            provider_mode=provider_mode,
+            ai_mode=ai_mode,
+            database_connected=db_connected
+        )
+
 
 class CaseService(Services): pass
 class RecoveryService(Services): pass

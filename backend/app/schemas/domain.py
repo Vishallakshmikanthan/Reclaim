@@ -474,3 +474,25 @@ class ControlledEvaluationResponse(BaseModel):
     evaluation_mode: str = "OFFLINE_HELD_OUT_SYNTHETIC"
     limitations: list[str]
     generated_at: datetime = Field(default_factory=now)
+
+class PreflightCheckItem(BaseModel):
+    name: str
+    status: str  # "READY" | "NOT_READY" | "WARNING"
+    details: str
+
+class PreflightResponse(BaseModel):
+    status: str  # "READY" | "NOT_READY"
+    timestamp: datetime = Field(default_factory=now)
+    checks: list[PreflightCheckItem]
+    summary: str
+    provider_mode: str
+    ai_mode: str
+    database_connected: bool
+
+class DemoResetResponse(BaseModel):
+    status: str
+    message: str
+    cases_seeded: int
+    policy_version: str
+    timestamp: datetime = Field(default_factory=now)
+

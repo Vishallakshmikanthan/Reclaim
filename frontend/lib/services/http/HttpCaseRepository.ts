@@ -64,6 +64,12 @@ export class HttpCaseRepository implements ICaseRepository {
   }
 
   public async resetToInitial(): Promise<Case[]> {
+    try {
+      await apiClient.post("/api/v1/system/demo/reset");
+    } catch (e) {
+      console.warn("Backend demo reset call failed:", e);
+    }
     return this.getAllCases();
   }
 }
+

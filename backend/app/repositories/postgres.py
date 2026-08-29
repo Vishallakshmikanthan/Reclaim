@@ -14,6 +14,41 @@ class PostgresRepositories:
     def __init__(self, session, merchant_id: str): self.session, self.merchant_id = session, merchant_id
     def ensure_merchant(self):
         if not self.session.get(MerchantModel, self.merchant_id): self.session.add(MerchantModel(id=self.merchant_id, business_name="RECLAIM Demo Merchant", industry="Demo")); self.session.flush()
+
+    def reset_demo(self) -> int:
+        from ..db.seed import get_demo_cases
+        self.ensure_merchant()
+        self.session.query(RecoveryBatchItemModel).filter(RecoveryBatchItemModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        self.session.query(RecoveryBatchModel).filter(RecoveryBatchModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        self.session.query(RecoveryActionModel).filter(RecoveryActionModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        self.session.query(CommunicationModel).filter(CommunicationModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        self.session.query(CampaignCaseModel).filter(CampaignCaseModel.campaign_id.in_(
+            select(CampaignModel.id).where(CampaignModel.merchant_id==self.merchant_id)
+        )).delete(synchronize_session=False)
+        self.session.query(CampaignModel).filter(CampaignModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        self.session.query(AuditEventModel).filter(AuditEventModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        self.session.query(FailureEventModel).filter(FailureEventModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        self.session.query(CaseModel).filter(CaseModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        self.session.query(PaymentModel).filter(PaymentModel.merchant_id==self.merchant_id).delete(synchronize_session=False)
+        
+        self.session.query(PolicyModel).filter(PolicyModel.merchant_id==self.merchant_id).update({"active": False})
+        pol_v1 = self.session.scalar(select(PolicyModel).where(PolicyModel.merchant_id==self.merchant_id, PolicyModel.version=="v1"))
+        if pol_v1:
+            pol_v1.active = True
+            pol_v1.configuration = PolicyConfiguration().model_dump()
+        else:
+            self.session.add(PolicyModel(merchant_id=self.merchant_id, version="v1", created_by="demo-reset", active=True, configuration=PolicyConfiguration().model_dump()))
+        
+        self.session.flush()
+
+        demo_cases = get_demo_cases()
+        for case in demo_cases:
+            self.create_case(case)
+            self.audit(AuditEvent(event_type="CASE_CREATED", case_id=case.id, actor="demo-reset"))
+        
+        self.session.commit()
+        return len(demo_cases)
+
     def to_case(self, row): return Case.model_validate(row.payload)
     def get_case(self, case_id):
         row=self.session.scalar(select(CaseModel).where(CaseModel.id==case_id,CaseModel.merchant_id==self.merchant_id)); return self.to_case(row) if row else None

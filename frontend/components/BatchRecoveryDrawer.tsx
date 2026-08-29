@@ -28,6 +28,7 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { apiClient } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
+import { useReclaim } from "@/lib/context/ReclaimContext";
 
 interface BatchRecoveryDrawerProps {
   isOpen: boolean;
@@ -43,6 +44,7 @@ export function BatchRecoveryDrawer({
   onBatchExecuted,
 }: BatchRecoveryDrawerProps) {
   const { toast } = useToast();
+  const { refreshData } = useReclaim();
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [previewData, setPreviewData] = useState<BatchPreviewResponse | null>(null);
@@ -101,6 +103,7 @@ export function BatchRecoveryDrawer({
         }
       );
       setExecutionResult(res);
+      refreshData();
       toast({
         title: `Batch Recovery ${res.status.replace("_", " ")}`,
         description: `Recovered ₹${(res.recovered_revenue_minor / 100).toLocaleString("en-IN")} across ${res.cases_recovered} cases.`,
