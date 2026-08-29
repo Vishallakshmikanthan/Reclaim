@@ -113,180 +113,77 @@ interface ReclaimContextType {
 
 const ReclaimContext = createContext<ReclaimContextType | undefined>(undefined);
 
-const STORAGE_CASES_KEY = "reclaim_v1_cases";
-const STORAGE_AUDIT_KEY = "reclaim_v1_audit";
-const STORAGE_CAMPAIGNS_KEY = "reclaim_v1_campaigns";
-const STORAGE_COMMUNICATIONS_KEY = "reclaim_v1_communications";
-const STORAGE_SERVICES_KEY = "reclaim_v1_service_health";
-const STORAGE_PROFILE_KEY = "reclaim_v1_merchant_profile";
-const STORAGE_POLICY_KEY = "reclaim_v1_merchant_policy";
-const STORAGE_POLICY_HISTORY_KEY = "reclaim_v1_policy_history";
+import { BrowserStorage, STORAGE_KEYS } from "../storage/browserStorage";
 
 export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
 
   const [cases, setCases] = useState<Case[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_CASES_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse cases from localStorage:", e);
-        }
-      }
-    }
-    return INITIAL_MOCK_CASES;
+    return BrowserStorage.getItem<Case[]>(STORAGE_KEYS.CASES, INITIAL_MOCK_CASES);
   });
 
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_AUDIT_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse audit events from localStorage:", e);
-        }
-      }
-    }
-    return INITIAL_AUDIT_EVENTS;
+    return BrowserStorage.getItem<AuditEvent[]>(STORAGE_KEYS.AUDIT_EVENTS, INITIAL_AUDIT_EVENTS);
   });
 
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_CAMPAIGNS_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse campaigns from localStorage:", e);
-        }
-      }
-    }
-    return INITIAL_CAMPAIGNS;
+    return BrowserStorage.getItem<Campaign[]>(STORAGE_KEYS.CAMPAIGNS, INITIAL_CAMPAIGNS);
   });
 
   const [communications, setCommunications] = useState<CommunicationMessage[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_COMMUNICATIONS_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse communications from localStorage:", e);
-        }
-      }
-    }
-    return INITIAL_COMMUNICATIONS;
+    return BrowserStorage.getItem<CommunicationMessage[]>(STORAGE_KEYS.COMMUNICATIONS, INITIAL_COMMUNICATIONS);
   });
 
   const [serviceHealth, setServiceHealth] = useState<Record<ServiceType, ServiceHealth>>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_SERVICES_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse services from localStorage:", e);
-        }
-      }
-    }
-    return INITIAL_SERVICE_HEALTH;
+    return BrowserStorage.getItem<Record<ServiceType, ServiceHealth>>(STORAGE_KEYS.SERVICE_HEALTH, INITIAL_SERVICE_HEALTH);
   });
 
   const [merchantProfile, setMerchantProfile] = useState<MerchantProfile>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_PROFILE_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse merchant profile from localStorage:", e);
-        }
-      }
-    }
-    return INITIAL_MERCHANT_PROFILE;
+    return BrowserStorage.getItem<MerchantProfile>(STORAGE_KEYS.MERCHANT_PROFILE, INITIAL_MERCHANT_PROFILE);
   });
 
   const [activePolicy, setActivePolicy] = useState<MerchantPolicy>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_POLICY_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse active policy from localStorage:", e);
-        }
-      }
-    }
-    return INITIAL_MERCHANT_POLICY;
+    return BrowserStorage.getItem<MerchantPolicy>(STORAGE_KEYS.MERCHANT_POLICY, INITIAL_MERCHANT_POLICY);
   });
 
   const [policyHistory, setPolicyHistory] = useState<PolicyVersionHistoryItem[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_POLICY_HISTORY_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse policy history from localStorage:", e);
-        }
-      }
-    }
-    return INITIAL_POLICY_HISTORY;
+    return BrowserStorage.getItem<PolicyVersionHistoryItem[]>(STORAGE_KEYS.POLICY_HISTORY, INITIAL_POLICY_HISTORY);
   });
 
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [executionProgressMap, setExecutionProgressMap] = useState<Record<string, ExecutionProgress>>({});
 
-  // Synchronize with LocalStorage
+  // Synchronize with Centralized Storage
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify(cases));
-    }
+    BrowserStorage.setItem(STORAGE_KEYS.CASES, cases);
   }, [cases]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_AUDIT_KEY, JSON.stringify(auditEvents));
-    }
+    BrowserStorage.setItem(STORAGE_KEYS.AUDIT_EVENTS, auditEvents);
   }, [auditEvents]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_CAMPAIGNS_KEY, JSON.stringify(campaigns));
-    }
+    BrowserStorage.setItem(STORAGE_KEYS.CAMPAIGNS, campaigns);
   }, [campaigns]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_COMMUNICATIONS_KEY, JSON.stringify(communications));
-    }
+    BrowserStorage.setItem(STORAGE_KEYS.COMMUNICATIONS, communications);
   }, [communications]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_SERVICES_KEY, JSON.stringify(serviceHealth));
-    }
+    BrowserStorage.setItem(STORAGE_KEYS.SERVICE_HEALTH, serviceHealth);
   }, [serviceHealth]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(merchantProfile));
-    }
+    BrowserStorage.setItem(STORAGE_KEYS.MERCHANT_PROFILE, merchantProfile);
   }, [merchantProfile]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_POLICY_KEY, JSON.stringify(activePolicy));
-    }
+    BrowserStorage.setItem(STORAGE_KEYS.MERCHANT_POLICY, activePolicy);
   }, [activePolicy]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_POLICY_HISTORY_KEY, JSON.stringify(policyHistory));
-    }
+    BrowserStorage.setItem(STORAGE_KEYS.POLICY_HISTORY, policyHistory);
   }, [policyHistory]);
 
   // Deterministic metrics derived strictly from the dataset
@@ -1589,16 +1486,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     setPolicyHistory(INITIAL_POLICY_HISTORY);
     setExecutionProgressMap({});
     setSelectedCaseId(null);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(STORAGE_CASES_KEY);
-      localStorage.removeItem(STORAGE_AUDIT_KEY);
-      localStorage.removeItem(STORAGE_CAMPAIGNS_KEY);
-      localStorage.removeItem(STORAGE_COMMUNICATIONS_KEY);
-      localStorage.removeItem(STORAGE_SERVICES_KEY);
-      localStorage.removeItem(STORAGE_PROFILE_KEY);
-      localStorage.removeItem(STORAGE_POLICY_KEY);
-      localStorage.removeItem(STORAGE_POLICY_HISTORY_KEY);
-    }
+    BrowserStorage.clearAll();
     toast({
       title: "Demo State Reset",
       description: "Restored initial cases, metrics, policy v1, and audit ledger.",

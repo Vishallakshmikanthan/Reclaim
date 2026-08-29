@@ -168,6 +168,7 @@ export interface Case {
   status: CaseStatus;
   age: string;
   createdAt: string;
+  updatedAt?: string;
   lastAttemptAt?: string;
   retryCount: number;
   maxRetries: number;
