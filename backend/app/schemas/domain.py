@@ -19,7 +19,8 @@ class Payment(BaseModel): payment_id: str; order_id: str; amount: int = Field(gt
 class Case(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     id: str = Field(default_factory=lambda: ident("case")); payment_id: str; order_id: str; customer_id: str; customer: str; customer_email: str; customer_phone: str
-    amount: int = Field(gt=0, description="Integer minor units (paise)"); payment_method: PaymentMethod; failure_type: FailureType; failure_reason: str; prob: float = Field(ge=0, le=1); expected: int = Field(ge=0); status: CaseStatus = CaseStatus.at_risk; age: str = "0 min"; created_at: datetime = Field(default_factory=now); updated_at: datetime | None = None; last_attempt_at: datetime | None = None; retry_count: int = Field(default=0, ge=0, le=10); max_retries: int = Field(default=3, ge=0, le=10); contact_count_24h: int = Field(default=0, ge=0); max_contacts_24h: int = Field(default=2, ge=1); risk_score: float = Field(default=0, ge=0, le=1); strategy: str = ""; bank: str | None = None; demo_scenario: str = "STANDARD"; recovered_amount: int = Field(default=0, ge=0)
+    amount: int = Field(gt=0, description="Integer minor units (paise)"); payment_method: PaymentMethod; failure_type: FailureType; failure_reason: str; prob: float = Field(ge=0, le=1); expected: int = Field(ge=0); status: CaseStatus = CaseStatus.at_risk; age: str = "0 min"; created_at: datetime = Field(default_factory=now); updated_at: datetime | None = None; last_attempt_at: datetime | None = None; resolved_at: datetime | None = None; retry_count: int = Field(default=0, ge=0, le=10); max_retries: int = Field(default=3, ge=0, le=10); contact_count_24h: int = Field(default=0, ge=0); max_contacts_24h: int = Field(default=2, ge=1); risk_score: float = Field(default=0, ge=0, le=1); strategy: str = ""; bank: str | None = None; demo_scenario: str = "STANDARD"; recovered_amount: int = Field(default=0, ge=0)
+
 class CaseCreateRequest(Case): pass
 class CaseUpdateRequest(BaseModel): status: CaseStatus | None = None
 CaseResponse = Case
@@ -35,9 +36,29 @@ class PolicyValidationResponse(BaseModel): allowed: bool; blocked_rules: list[st
 class RecoveryDecision(BaseModel): case_id: str; strategy: Strategy; recovery_probability: float; expected_recovery: int; priority: str; explanation: str; policy_result: PolicyValidationResponse; next_step: str
 RecoveryDecisionResponse = RecoveryDecision
 class RecoveryActionRequest(BaseModel): strategy: Strategy | None = None; scenario: str | None = None
-class RecoveryAction(BaseModel): action_id: str = Field(default_factory=lambda: ident("action")); case_id: str; strategy: Strategy; status: ActionStatus; policy_version: str; idempotency_key: str; verification_status: str; created_at: datetime = Field(default_factory=now); transaction_id: str | None = None
+class RecoveryAction(BaseModel):
+    action_id: str = Field(default_factory=lambda: ident("action"))
+    case_id: str
+    strategy: Strategy
+    status: ActionStatus
+    policy_version: str
+    idempotency_key: str
+    verification_status: str
+    created_at: datetime = Field(default_factory=now)
+    transaction_id: str | None = None
+    provider: str = "simulated"
+    provider_order_id: str | None = None
+    provider_payment_id: str | None = None
+    provider_status: str | None = None
+    provider_reference: str | None = None
+    failure_code: str | None = None
+    failure_reason: str | None = None
 RecoveryActionResponse = RecoveryAction
+
 class RecoveryStatusResponse(BaseModel): case_id: str; status: CaseStatus; recovered_amount: int; verification_status: str | None = None
+class WebhookResponse(BaseModel): status: str; event_id: str | None = None; message: str
+class ReconciliationResponse(BaseModel): action_id: str; case_id: str; provider: str; status: ActionStatus; verification_status: str; message: str
+
 class Campaign(BaseModel): id: str = Field(default_factory=lambda: ident("campaign")); name: str = Field(min_length=1); type: str; description: str = ""; status: CampaignStatus = CampaignStatus.draft; min_probability: float = Field(default=.2, ge=0, le=1); case_ids: list[str] = Field(default_factory=list); created_at: datetime = Field(default_factory=now); updated_at: datetime = Field(default_factory=now)
 class CampaignCreateRequest(BaseModel): name: str; type: str; description: str = ""; min_probability: float = Field(default=.2, ge=0, le=1); case_ids: list[str] = Field(default_factory=list)
 class CampaignUpdateRequest(BaseModel): name: str | None = None; description: str | None = None; min_probability: float | None = Field(default=None, ge=0, le=1)

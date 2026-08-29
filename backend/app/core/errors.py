@@ -9,6 +9,8 @@ class PolicyValidationError(AppError): status_code, code, message = 422, "POLICY
 class RecoveryExecutionError(AppError): status_code, code, message = 409, "RECOVERY_EXECUTION_FAILED", "Recovery action cannot be executed."
 class VerificationError(AppError): status_code, code, message = 409, "VERIFICATION_UNRESOLVED", "Recovery verification is unresolved."
 class DuplicateActionError(AppError): status_code, code, message = 409, "DUPLICATE_ACTION", "A recovery action already exists."
+class WebhookVerificationError(AppError): status_code, code, message = 400, "WEBHOOK_VERIFICATION_FAILED", "Webhook signature verification failed."
 class PermissionError(AppError): status_code, code, message = 403, "PERMISSION_DENIED", "Permission denied."
 class ServiceUnavailableError(AppError): status_code, code, message = 503, "SERVICE_UNAVAILABLE", "A required service is unavailable."
 async def app_error_handler(_: Request, exc: AppError) -> JSONResponse: return JSONResponse(status_code=exc.status_code, content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}})
+

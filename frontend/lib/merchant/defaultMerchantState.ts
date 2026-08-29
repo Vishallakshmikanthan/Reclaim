@@ -1,8 +1,9 @@
 import { MerchantProfile, MerchantPolicy, PolicyVersionHistoryItem } from "./types";
 
 export const INITIAL_MERCHANT_PROFILE: MerchantProfile = {
-  merchantId: "mid_rzp_live_acme_99401",
+  merchantId: "merchant_demo",
   businessName: "Acme Commerce India Pvt Ltd",
+
   industry: "E-Commerce & Digital Goods",
   currency: "INR",
   timezone: "Asia/Kolkata",

@@ -15,6 +15,7 @@ export const APP_CONFIG = {
   DEFAULT_TIMEZONE: "Asia/Kolkata" as const,
   DEFAULT_LOCALE: "en-IN" as const,
   STORAGE_PREFIX: "reclaim_v1_",
-  DEMO_MERCHANT_ID: "mid_rzp_live_acme_99401",
+  DEMO_MERCHANT_ID: "merchant_demo",
   DEMO_GATEWAY: "Razorpay Test Gateway",
 } as const;
+

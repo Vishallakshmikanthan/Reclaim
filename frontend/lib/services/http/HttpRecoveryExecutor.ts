@@ -11,7 +11,13 @@ export interface BackendRecoveryActionResponse {
   verification_status: string;
   created_at: string;
   transaction_id: string | null;
+  provider?: string;
+  provider_order_id?: string | null;
+  provider_payment_id?: string | null;
+  provider_status?: string | null;
+  provider_reference?: string | null;
 }
+
 
 export class HttpRecoveryExecutor implements RecoveryExecutor {
   public async execute(request: ExecutionRequest): Promise<ExecutionResult> {

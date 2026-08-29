@@ -1,17 +1,17 @@
-from fastapi import Depends, FastAPI, Header, Query
+from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, OperationalError
 from .core.config import get_settings
-from .core.errors import AppError, app_error_handler, CaseNotFoundError, ServiceUnavailableError, DuplicateActionError, PolicyValidationError
+from .core.errors import AppError, app_error_handler, CaseNotFoundError, ServiceUnavailableError, DuplicateActionError, PolicyValidationError, WebhookVerificationError
 from .repositories.factory import repository_context
 from .schemas import *
 from .services.application import Services
 
 settings=get_settings()
 app=FastAPI(title=settings.app_name,description="Revenue recovery orchestration API",version=settings.app_version)
-app.add_middleware(CORSMiddleware,allow_origins=settings.origins,allow_credentials=True,allow_methods=["GET","POST","PUT","OPTIONS"],allow_headers=["Content-Type","Idempotency-Key"])
+app.add_middleware(CORSMiddleware,allow_origins=settings.origins,allow_credentials=True,allow_methods=["GET","POST","PUT","OPTIONS"],allow_headers=["Content-Type","Idempotency-Key","X-Razorpay-Signature"])
 app.add_exception_handler(AppError,app_error_handler)
 @app.exception_handler(RequestValidationError)
 async def validation_error(_,exc): return JSONResponse(status_code=422,content={"error":{"code":"VALIDATION_ERROR","message":"Request validation failed.","details":{"errors":exc.errors()}}})
@@ -43,9 +43,22 @@ def decision(case_id:str,svc:Services=Depends(get_services)): return svc.decisio
 def action(case_id:str,payload:RecoveryActionRequest,idempotency_key:str=Header(...,alias="Idempotency-Key"),svc:Services=Depends(get_services)):
     try: return svc.action(case_id,payload,idempotency_key)
     except IntegrityError: svc.repo.session.rollback(); existing=svc.repo.action_for_key(idempotency_key); return existing if existing else (_ for _ in ()).throw(DuplicateActionError())
+@app.get("/api/v1/recovery/actions/{action_id}",response_model=RecoveryActionResponse)
+def get_action(action_id:str,svc:Services=Depends(get_services)):
+    action_item=svc.repo.get_action(action_id)
+    if not action_item: raise CaseNotFoundError("Recovery action not found.")
+    return action_item
+@app.post("/api/v1/recovery/actions/{action_id}/reconcile",response_model=ReconciliationResponse)
+def reconcile_action(action_id:str,svc:Services=Depends(get_services)):
+    return svc.reconcile_action(action_id)
+@app.post("/api/v1/webhooks/razorpay",response_model=WebhookResponse)
+async def razorpay_webhook(request:Request,x_razorpay_signature:str|None=Header(None,alias="X-Razorpay-Signature"),svc:Services=Depends(get_services)):
+    body=await request.body()
+    return svc.process_razorpay_webhook(raw_body=body,signature_header=x_razorpay_signature)
 @app.get("/api/v1/cases/{case_id}/audit",response_model=AuditEventListResponse)
 def case_audit(case_id:str,page:int=Query(1,ge=1),page_size:int=Query(100,ge=1,le=200),svc:Services=Depends(get_services)):
     svc.case(case_id);items,total=svc.repo.events(case_id=case_id,page=page,page_size=page_size);return AuditEventListResponse(items=items,total=total)
+
 
 @app.get("/api/v1/policies/current",response_model=PolicyResponse)
 def policy(svc:Services=Depends(get_services)): return svc.policy()

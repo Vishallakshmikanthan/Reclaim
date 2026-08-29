@@ -55,10 +55,87 @@ class PostgresRepositories:
         self.ensure_merchant(); self.session.query(PolicyModel).filter_by(merchant_id=self.merchant_id,active=True).update({"active":False}); self.session.add(PolicyModel(merchant_id=self.merchant_id,version=policy.version,created_by=policy.created_by,active=True,configuration=policy.configuration.model_dump())); self.session.flush(); return policy
     def action_for_key(self,key):
         row=self.session.scalar(select(RecoveryActionModel).where(RecoveryActionModel.merchant_id==self.merchant_id,RecoveryActionModel.idempotency_key==key)); return self.to_action(row) if row else None
-    def to_action(self,row): return RecoveryAction(action_id=row.id,case_id=row.case_id,strategy=row.action_type,status=row.status,policy_version=row.policy_version,idempotency_key=row.idempotency_key,verification_status=row.verification_status,created_at=row.created_at,transaction_id=row.transaction_id)
+    def to_action(self,row):
+        return RecoveryAction(
+            action_id=row.id,
+            case_id=row.case_id,
+            strategy=row.action_type,
+            status=row.status,
+            policy_version=row.policy_version,
+            idempotency_key=row.idempotency_key,
+            verification_status=row.verification_status,
+            created_at=row.created_at,
+            transaction_id=row.transaction_id,
+            provider=row.provider or "simulated",
+            provider_order_id=row.provider_order_id,
+            provider_payment_id=row.provider_payment_id,
+            provider_status=row.provider_status,
+            provider_reference=row.provider_reference,
+            failure_code=row.failure_code,
+            failure_reason=row.failure_reason
+        )
+    def get_action(self, action_id: str):
+        row = self.session.scalar(select(RecoveryActionModel).where(RecoveryActionModel.id==action_id, RecoveryActionModel.merchant_id==self.merchant_id))
+        return self.to_action(row) if row else None
     def action_exists_for_case(self,case_id): return self.session.scalar(select(RecoveryActionModel.id).where(RecoveryActionModel.case_id==case_id,RecoveryActionModel.merchant_id==self.merchant_id)) is not None
+    def action_by_order_id(self, order_id: str):
+        row = self.session.scalar(select(RecoveryActionModel).where(RecoveryActionModel.provider_order_id==order_id, RecoveryActionModel.merchant_id==self.merchant_id))
+        return self.to_action(row) if row else None
+    def action_by_payment_id(self, payment_id: str):
+        row = self.session.scalar(select(RecoveryActionModel).where(RecoveryActionModel.provider_payment_id==payment_id, RecoveryActionModel.merchant_id==self.merchant_id))
+        return self.to_action(row) if row else None
     def create_action(self,action,amount):
-        self.session.add(RecoveryActionModel(id=action.action_id,case_id=action.case_id,merchant_id=self.merchant_id,action_type=_val(action.strategy),status=_val(action.status),idempotency_key=action.idempotency_key,policy_version=action.policy_version,amount_minor=amount,verification_status=action.verification_status,transaction_id=action.transaction_id)); self.session.flush(); return action
+        self.session.add(RecoveryActionModel(
+            id=action.action_id,
+            case_id=action.case_id,
+            merchant_id=self.merchant_id,
+            action_type=_val(action.strategy),
+            status=_val(action.status),
+            idempotency_key=action.idempotency_key,
+            policy_version=action.policy_version,
+            amount_minor=amount,
+            verification_status=action.verification_status,
+            transaction_id=action.transaction_id,
+            failure_code=action.failure_code,
+            failure_reason=action.failure_reason,
+            provider=action.provider,
+            provider_order_id=action.provider_order_id,
+            provider_payment_id=action.provider_payment_id,
+            provider_status=action.provider_status,
+            provider_reference=action.provider_reference,
+            started_at=datetime.now(timezone.utc)
+        ))
+        self.session.flush()
+        return action
+    def save_action(self, action: RecoveryAction):
+        row = self.session.scalar(select(RecoveryActionModel).where(RecoveryActionModel.id==action.action_id, RecoveryActionModel.merchant_id==self.merchant_id))
+        if row:
+            row.status = _val(action.status)
+            row.verification_status = action.verification_status
+            row.transaction_id = action.transaction_id
+            row.failure_code = action.failure_code
+            row.failure_reason = action.failure_reason
+            row.provider_order_id = action.provider_order_id
+            row.provider_payment_id = action.provider_payment_id
+            row.provider_status = action.provider_status
+            row.provider_reference = action.provider_reference
+            if action.verification_status in {"verified", "failed"}:
+                row.completed_at = datetime.now(timezone.utc)
+            self.session.flush()
+
+    def is_webhook_event_processed(self, event_id: str) -> bool:
+        return self.session.scalar(select(WebhookEventModel.id).where(WebhookEventModel.merchant_id==self.merchant_id, WebhookEventModel.event_id==event_id)) is not None
+    def record_webhook_event(self, event_id: str, event_type: str, payload: dict, provider: str = "razorpay"):
+        self.session.add(WebhookEventModel(
+            merchant_id=self.merchant_id,
+            provider=provider,
+            event_id=event_id,
+            event_type=event_type,
+            payload=payload,
+            processed=True
+        ))
+        self.session.flush()
+
     def audit(self,event): self.session.add(AuditEventModel(id=event.event_id,merchant_id=self.merchant_id,event_type=event.event_type,case_id=event.case_id,campaign_id=event.campaign_id,policy_version=event.policy_version,actor=event.actor,timestamp=event.timestamp,metadata_json=event.metadata)); self.session.flush(); return event
     def events(self,case_id=None,campaign_id=None,page=1,page_size=100):
         q=select(AuditEventModel).where(AuditEventModel.merchant_id==self.merchant_id)
