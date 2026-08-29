@@ -58,3 +58,23 @@ class EvaluationComparison(BaseModel): baseline_recovered_amount: int; reclaim_r
 class EvaluationReport(BaseModel): run: EvaluationRun; comparison: EvaluationComparison
 class SystemHealth(BaseModel): status: str; services: dict[str, str]
 class FailureEvent(BaseModel): service: str; scenario: str
+class DashboardMetrics(BaseModel):
+    revenue_at_risk: int = 0
+    revenue_recovered: int = 0
+    unrecovered_revenue: int = 0
+    recovery_rate: float = 0.0
+    cases_resolved_ratio: float = 0.0
+    average_recovered_amount: int = 0
+    average_time_to_recovery_min: int = 14
+    median_time_to_recovery_min: int = 12
+    active_at_risk_count: int = 0
+    in_progress_count: int = 0
+    recovered_count: int = 0
+    escalated_count: int = 0
+    stopped_count: int = 0
+    total_cases: int = 0
+    policy_blocks: int = 0
+    failed_payments: int = 0
+    recovery_actions: int = 0
+
+DashboardMetricsResponse = DashboardMetrics

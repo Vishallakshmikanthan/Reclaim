@@ -95,18 +95,42 @@ The frontend follows a clean, decoupled architecture where presentation componen
 3. **Traceable Versioning**:
    * Every executed action attributes its governing `policyVersion` in the immutable audit ledger.
    * Policy rollbacks create new forward versions (e.g. `v3` restoring `v1` snapshot) without mutating historical records.
-# Persistence architecture (Step 16)
+# RECLAIM — Integrated Architecture (Step 17)
 
 ```text
-Next.js (existing mock services; no database access)
-        |
-     FastAPI
-        |
-Application services + deterministic engines
-        |
-Repository interfaces / PostgreSQL repositories
-        |
-PostgreSQL
+Next.js 14 App Router
+        ↓ (HTTP REST API with JSON mapping)
+     FastAPI (/api/v1/*)
+        ↓
+Application Services & Deterministic Engines
+        ↓
+PostgreSQL Persistence (SQLAlchemy + Alembic)
 ```
 
-`REPOSITORY_BACKEND=postgres` is the application default. In-memory repositories remain only for isolated tests and must not be used for a production-style startup. Each repository is merchant-scoped using the development-only `DEMO_MERCHANT_ID` placeholder until authentication arrives.
+## 5. End-to-End Integration & Data Integrity (Step 17D)
+
+### Server-Authoritative Dashboard Metrics
+* **Endpoint**: `GET /api/v1/dashboard/metrics`
+* **Integrity Guarantee**: Metrics (`revenue_at_risk`, `revenue_recovered`, `recovery_rate`, `total_cases`, etc.) are computed globally from PostgreSQL records for the active merchant. Pagination or case filtering in the UI does not corrupt global business metrics.
+* **Minor-Unit Accounting**: All monetary values are processed and stored as integer paise. Only verified recovered actions contribute to `revenue_recovered`.
+
+### PostgreSQL Source of Truth
+* The Next.js frontend has zero direct database credentials or Prisma runtime connections.
+* All state (Cases, Policies, Campaigns, Communications, Audit Events, Dashboard Metrics) is fetched from and persisted to FastAPI/PostgreSQL.
+
+### Evaluation Dataset Isolation
+* Held-out evaluation datasets (`demo_scenario="EVAL"`) are isolated and never inflate live operational dashboard metrics.
+* Running live recovery operations does not pollute evaluation benchmark data.
+
+### Runtime Modes
+* **Default Mode (`NEXT_PUBLIC_USE_MOCKS=false`)**: Full-stack HTTP communication with FastAPI.
+* **Mock Mode (`NEXT_PUBLIC_USE_MOCKS=true`)**: Available strictly for isolated UI testing/development without backend services.
+
+### Recovery Safety & Idempotency
+* Every recovery action is gated by backend policy validation and requires a stable `Idempotency-Key` header.
+* Duplicate execution requests are safely rejected or return existing verified state without double-crediting.
+* Historical audit logs are append-only and ordered chronologically by backend timestamp.
+
+### Known Scope Boundaries
+* External Razorpay gateway API, Gemini, LangGraph, authentication, and WebSocket infrastructure remain deferred to subsequent steps. All operations use deterministic, truthful backend simulations with PostgreSQL persistence.
+

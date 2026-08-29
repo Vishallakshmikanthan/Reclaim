@@ -2,10 +2,12 @@ import { Case, CaseStatus } from "../types";
 import { BrowserStorage, STORAGE_KEYS } from "../storage/browserStorage";
 import { INITIAL_MOCK_CASES } from "../mock-data/mockCases";
 import { transitionCase } from "../domain/caseStateMachine";
+import { OperationalMetrics, calculateOperationalMetrics } from "../metrics/metricsService";
 
 export interface ICaseRepository {
   getAllCases(): Promise<Case[]>;
   getCaseById(id: string): Promise<Case | undefined>;
+  getDashboardMetrics(): Promise<OperationalMetrics>;
   saveCase(caseItem: Case): Promise<Case>;
   updateCaseStatus(id: string, targetStatus: CaseStatus, updates?: Partial<Case>): Promise<Case | undefined>;
   resetToInitial(): Promise<Case[]>;
@@ -14,6 +16,11 @@ export interface ICaseRepository {
 export class MockCaseRepository implements ICaseRepository {
   public async getAllCases(): Promise<Case[]> {
     return BrowserStorage.getItem<Case[]>(STORAGE_KEYS.CASES, INITIAL_MOCK_CASES);
+  }
+
+  public async getDashboardMetrics(): Promise<OperationalMetrics> {
+    const cases = await this.getAllCases();
+    return calculateOperationalMetrics(cases);
   }
 
   public async getCaseById(id: string): Promise<Case | undefined> {

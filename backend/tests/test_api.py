@@ -16,3 +16,14 @@ def test_case_and_recovery_idempotency():
 def test_missing_case_is_structured():
     response = client.get("/api/v1/cases/missing")
     assert response.status_code == 404 and response.json()["error"]["code"] == "CASE_NOT_FOUND"
+
+def test_dashboard_metrics():
+    res = client.get("/api/v1/dashboard/metrics")
+    assert res.status_code == 200
+    data = res.json()
+    assert "revenue_at_risk" in data
+    assert "revenue_recovered" in data
+    assert "recovery_rate" in data
+    assert "total_cases" in data
+    assert isinstance(data["total_cases"], int)
+

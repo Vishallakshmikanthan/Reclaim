@@ -109,5 +109,8 @@ def evaluation_detail(run_id:str,svc:Services=Depends(get_services)):
     run=svc.repo.evaluation(run_id)
     if not run:raise CaseNotFoundError("Evaluation run not found.")
     return run
+@app.get("/api/v1/dashboard/metrics",response_model=DashboardMetricsResponse)
+def dashboard_metrics(svc:Services=Depends(get_services)):
+    return svc.repo.dashboard_metrics()
 @app.get("/api/v1/system/health",response_model=SystemHealth)
 def system_health(): return SystemHealth(status="ok",services={name:"ready" for name in ["Decision Engine","Policy Engine","Recovery Executor","Verification","Audit","Communication","Campaign Orchestrator"]})

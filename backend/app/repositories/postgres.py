@@ -79,3 +79,60 @@ class PostgresRepositories:
     def create_evaluation(self,run): self.session.add(EvaluationRunModel(id=run.run_id,merchant_id=self.merchant_id,status=run.status,metrics=run.metrics.model_dump())); self.session.flush(); return run
     def evaluations(self): return [EvaluationRun(run_id=x.id,status=x.status,created_at=x.created_at,metrics=EvaluationMetrics.model_validate(x.metrics)) for x in self.session.scalars(select(EvaluationRunModel).where(EvaluationRunModel.merchant_id==self.merchant_id)).all()]
     def evaluation(self,id): return next((x for x in self.evaluations() if x.run_id==id),None)
+    def dashboard_metrics(self) -> DashboardMetrics:
+        cases = self.session.scalars(select(CaseModel).where(CaseModel.merchant_id==self.merchant_id)).all()
+        total_cases = len(cases)
+        at_risk_total = 0
+        recovered_total = 0
+        at_risk_count = 0
+        in_progress_count = 0
+        recovered_count = 0
+        escalated_count = 0
+        stopped_count = 0
+        
+        for c in cases:
+            st = c.status
+            amount = c.payload.get("amount", 0) if c.payload else 0
+            rec_amount = c.recovered_amount_minor or 0
+            
+            if st in [CaseStatus.at_risk.value, CaseStatus.in_progress.value, CaseStatus.pending.value, CaseStatus.executing.value]:
+                at_risk_total += amount
+            
+            if st == CaseStatus.recovered.value:
+                recovered_total += rec_amount or amount
+                recovered_count += 1
+            elif st == CaseStatus.at_risk.value:
+                at_risk_count += 1
+            elif st in [CaseStatus.in_progress.value, CaseStatus.executing.value, CaseStatus.pending.value]:
+                in_progress_count += 1
+            elif st == CaseStatus.escalated.value:
+                escalated_count += 1
+            elif st in [CaseStatus.stopped.value, CaseStatus.failed.value]:
+                stopped_count += 1
+
+        terminal_cases = recovered_count + escalated_count + stopped_count
+        recovery_rate = float(round((recovered_count / terminal_cases * 100), 1)) if terminal_cases > 0 else 0.0
+        cases_resolved_ratio = float(round((recovered_count / total_cases * 100), 1)) if total_cases > 0 else 0.0
+        average_recovered_amount = int(recovered_total // recovered_count) if recovered_count > 0 else 0
+        
+        policy_blocks = self.session.scalar(select(func.count(AuditEventModel.id)).where(AuditEventModel.merchant_id==self.merchant_id, AuditEventModel.event_type=="POLICY_BLOCKED")) or 0
+        failed_payments = self.session.scalar(select(func.count(PaymentModel.id)).where(PaymentModel.merchant_id==self.merchant_id)) or 0
+        recovery_actions = self.session.scalar(select(func.count(RecoveryActionModel.id)).where(RecoveryActionModel.merchant_id==self.merchant_id)) or 0
+
+        return DashboardMetrics(
+            revenue_at_risk=at_risk_total,
+            revenue_recovered=recovered_total,
+            unrecovered_revenue=at_risk_total,
+            recovery_rate=recovery_rate,
+            cases_resolved_ratio=cases_resolved_ratio,
+            average_recovered_amount=average_recovered_amount,
+            active_at_risk_count=at_risk_count,
+            in_progress_count=in_progress_count,
+            recovered_count=recovered_count,
+            escalated_count=escalated_count,
+            stopped_count=stopped_count,
+            total_cases=total_cases,
+            policy_blocks=policy_blocks,
+            failed_payments=failed_payments,
+            recovery_actions=recovery_actions
+        )

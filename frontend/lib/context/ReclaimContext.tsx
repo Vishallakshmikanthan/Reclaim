@@ -153,6 +153,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [serverMetrics, setServerMetrics] = useState<OperationalMetrics | null>(null);
   const [executionProgressMap, setExecutionProgressMap] = useState<Record<string, ExecutionProgress>>({});
 
   // API Initialization
@@ -166,14 +167,16 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
             apiCampaigns, 
             apiComms, 
             apiPolicy, 
-            apiPolicyHistory
+            apiPolicyHistory,
+            apiMetrics
           ] = await Promise.all([
             services.caseRepo.getAllCases(),
             services.auditRepo.getAllEvents(),
             services.campaignRepo.getAllCampaigns(),
             services.communicationRepo.getAllCommunications(),
             services.policyRepo.getActivePolicy(),
-            services.policyRepo.getPolicyHistory()
+            services.policyRepo.getPolicyHistory(),
+            services.caseRepo.getDashboardMetrics()
           ]);
           setCases(apiCases);
           setAuditEvents(apiAudit);
@@ -181,6 +184,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
           setCommunications(apiComms);
           setActivePolicy(apiPolicy);
           setPolicyHistory(apiPolicyHistory);
+          setServerMetrics(apiMetrics);
           const healthRes = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"}/api/v1/system/health`).catch(() => null);
           if (healthRes && healthRes.ok) {
             const healthData = await healthRes.json();
@@ -241,8 +245,13 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     BrowserStorage.setItem(STORAGE_KEYS.POLICY_HISTORY, policyHistory);
   }, [policyHistory]);
 
-  // Deterministic metrics derived strictly from the dataset
-  const metrics = useMemo(() => calculateOperationalMetrics(cases), [cases]);
+  // Server-authoritative metrics from PostgreSQL with fallback to dataset calculation
+  const metrics = useMemo(() => {
+    if (process.env.NEXT_PUBLIC_USE_MOCKS !== 'true' && serverMetrics) {
+      return serverMetrics;
+    }
+    return calculateOperationalMetrics(cases);
+  }, [cases, serverMetrics]);
 
   // Audit Dispatcher with standard ISO/IST timestamp representation
   const addAuditEvent = useCallback((event: Omit<AuditEvent, "id" | "timestamp">) => {
@@ -657,7 +666,8 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         setExecutionProgressMap((prev) => ({ ...prev, [caseId]: { caseId, step: "success", idempotencyKey } }));
         await Promise.all([
           services.caseRepo.getAllCases().then(setCases),
-          services.auditRepo.getAllEvents().then(setAuditEvents)
+          services.auditRepo.getAllEvents().then(setAuditEvents),
+          services.caseRepo.getDashboardMetrics().then(setServerMetrics)
         ]);
         return true;
       } catch (err: any) {
