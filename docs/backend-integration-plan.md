@@ -30,9 +30,10 @@ Phase 10: Production Containerization & Cloud Deployment
 
 ---
 
-### Phase 1: FastAPI Foundation
-* Initialize Python 3.11+ FastAPI service under `backend/`.
-* Configure CORS, structured error middleware, Pydantic v2 schemas, and health check endpoints (`/health`, `/metrics`).
+### Phase 1: FastAPI Foundation — completed (Step 15)
+* A separate Python 3.11+ FastAPI demo service now exists under `backend/`, with safe local CORS, Pydantic v2 schemas, structured errors, `/health`, `/ready`, `/docs`, and versioned `/api/v1` endpoints.
+* It has deterministic engines, application services, repository interfaces, in-memory repositories, append-only audit generation, recovery idempotency, policy versioning, mock verification/execution, and development-only failure simulation.
+* The Next.js frontend remains on its existing mocks. This step does not include a production database, authentication, Razorpay, Gemini, LangGraph, or real messaging. Phase 2 replaces only the in-memory repository implementation with PostgreSQL-backed repositories.
 
 ### Phase 2: PostgreSQL Persistence
 * Establish relational schemas mirroring domain types:
