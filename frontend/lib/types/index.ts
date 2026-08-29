@@ -35,6 +35,17 @@ export type RecoveryChannel =
   | "human_escalation" 
   | "no_action";
 
+export type DecisionConfidence = "High" | "Medium" | "Low";
+
+export type RecommendedInterventionType = 
+  | "Retry Payment" 
+  | "Payment Link" 
+  | "Customer Reminder" 
+  | "Subscription Retry" 
+  | "Receivables Reminder" 
+  | "Human Escalation" 
+  | "No Action";
+
 export interface Customer {
   id: string;
   name: string;
@@ -57,6 +68,16 @@ export interface Payment {
   failureCode?: string;
   failureReason: string;
   createdAt: string;
+}
+
+export interface RiskSignals {
+  paymentAge: string;
+  previousSuccessfulPayments: number;
+  previousFailedAttempts: number;
+  historicalRecoveryRate: number; // e.g. 74 for 74%
+  customerRiskTier: "LOW" | "MEDIUM" | "HIGH";
+  retryAttempts: string;
+  contactCount: string;
 }
 
 export interface Case {
@@ -85,8 +106,15 @@ export interface Case {
   riskScore: number; // 0.0 to 1.0
   strategy: string;
   bank?: string;
-  demoScenario?: "A_SUCCESS" | "B_POLICY_BLOCK" | "C_TIMEOUT" | "D_LOW_PROB" | "STANDARD";
+  demoScenario?: "A_SUCCESS" | "B_POLICY_BLOCK" | "C_TIMEOUT" | "D_LOW_PROB" | "E_MEDIUM_LINK" | "STANDARD";
   lastError?: string;
+  
+  // Rich intelligence metadata
+  previousSuccessfulPayments?: number;
+  previousFailedAttempts?: number;
+  historicalRecoveryRate?: number;
+  customerRiskTier?: "LOW" | "MEDIUM" | "HIGH";
+
   resolutionDetails?: {
     recoveredAmount: number;
     channel: string;
@@ -113,14 +141,58 @@ export interface PolicyResult {
   recommendedNextAction: string;
 }
 
+export interface AlternativeAction {
+  name: string;
+  channel: string;
+  estimatedExpectedRecovery: number; // in paise
+  estimatedProbability: number; // 0.0 to 1.0
+  description: string;
+  recommended?: boolean;
+}
+
+export interface DecisionTimelineEvent {
+  time: string;
+  step: string;
+  detail: string;
+  layer: string;
+}
+
 export interface RecoveryDecision {
   caseId: string;
+  
+  // 1. Root Cause & Context
+  likelyRootCause: string;
+  confidence: DecisionConfidence;
+  whyThisMatters: string;
+  
+  // 2. Probability & Signals
+  recoveryProbability: number;
+  contributingSignals: {
+    positive: string[];
+    negative: string[];
+  };
+  
+  // 3. Expected Value (Dynamically computed: amount * recoveryProbability)
+  expectedRecovery: number; // in paise
+  
+  // 4. Recommendation & Strategy
+  recommendedIntervention: RecommendedInterventionType;
+  whyThisAction: string;
+  
+  // 5. Alternatives
+  alternatives: AlternativeAction[];
+  
+  // 6. Decision Timeline
+  decisionTimeline: DecisionTimelineEvent[];
+
+  // 7. Summary
+  policyStatus: "Approved" | "Blocked";
+  nextAction: string;
+
+  // Legacy/Compatibility fields
   recommendedAction: string;
   strategy: string;
   channel: RecoveryChannel;
-  confidence: "High Confidence" | "Medium Confidence" | "Low Confidence";
-  probability: number;
-  expectedRecovery: number;
   conciseReason: string;
   rootCause: string;
   fallbackPlan: string;
