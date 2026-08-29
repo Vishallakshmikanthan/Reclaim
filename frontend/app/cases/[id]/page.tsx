@@ -1,32 +1,52 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
+import Link from "next/link";
 import { formatCurrency, cn } from "@/lib/utils";
 import { PolicyCheck } from "@/components/ui/PolicyCheck";
 import { ProbabilityMeter } from "@/components/ui/ProbabilityMeter";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { 
-  ArrowLeft, BrainCircuit, ShieldAlert, Activity, 
-  CheckCircle2, XCircle, Clock, ChevronRight, Play
+  ArrowLeft, 
+  BrainCircuit, 
+  ShieldAlert, 
+  Activity, 
+  CheckCircle2, 
+  XCircle, 
+  Clock, 
+  ChevronRight, 
+  Play,
+  RotateCcw,
+  AlertTriangle,
+  Send,
+  FileCheck2,
+  ExternalLink
 } from "lucide-react";
-import Link from "next/link";
 
-const LIFECYCLE_STEPS = ["DETECT", "ANALYZE", "DECIDE", "POLICY", "ACT", "VERIFY", "RECOVER"];
+const LIFECYCLE_STEPS = [
+  { key: "DETECT", label: "0. Detect" },
+  { key: "ANALYZE", label: "1. Analyze" },
+  { key: "DECIDE", label: "2. Decide" },
+  { key: "POLICY", label: "3. Policy" },
+  { key: "ACT", label: "4. Act" },
+  { key: "VERIFY", label: "5. Verify" },
+  { key: "RECOVER", label: "6. Recover" }
+];
 
 export default function CaseDecisionPage({ params }: { params: { id: string } }) {
+  const caseId = params.id || "RC-2024-081";
   const [executionState, setExecutionState] = useState<"idle" | "executing" | "verifying" | "success" | "blocked" | "timeout">("idle");
-  const [lifecycleProgress, setLifecycleProgress] = useState(3); // DETECT, ANALYZE, DECIDE, POLICY completed
-  
+  const [lifecycleProgress, setLifecycleProgress] = useState(3); // DETECT, ANALYZE, DECIDE, POLICY evaluated
+
   const handleExecute = () => {
     setExecutionState("executing");
     setLifecycleProgress(4); // ACT
     
     setTimeout(() => {
-      // Simulate Razorpay Execution taking time
       setExecutionState("verifying");
       setLifecycleProgress(5); // VERIFY
       
       setTimeout(() => {
-        // Here we could randomly fail to simulate demo states, but we'll succeed for happy path
         setExecutionState("success");
         setLifecycleProgress(6); // RECOVER
       }, 1500);
@@ -39,284 +59,502 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     
     setTimeout(() => {
       setExecutionState("timeout");
-    }, 2500);
+    }, 2000);
   };
 
   const handlePolicyBlockDemo = () => {
     setExecutionState("blocked");
+    setLifecycleProgress(3);
+  };
+
+  const handleResetDemo = () => {
+    setExecutionState("idle");
+    setLifecycleProgress(3);
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-300 pb-16">
       
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-8">
-        <Link href="/at-risk" className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-surface-elevated transition-colors">
-          <ArrowLeft className="w-5 h-5 text-slate-500 dark:text-text-secondary" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-text-primary flex items-center gap-3">
-            Recovery Decision
-            <span className="text-sm font-normal text-slate-500 bg-slate-100 dark:bg-surface-elevated px-2.5 py-0.5 rounded-md border border-slate-200 dark:border-border-subtle">
-              {params.id || "RC-2024-001"}
-            </span>
-          </h1>
+      {/* 1. Case Header & Breadcrumb */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/60 dark:border-border-subtle">
+        <div className="flex items-center gap-3">
+          <Link 
+            href="/at-risk" 
+            className="p-2 rounded-lg border border-slate-200 dark:border-border-subtle hover:bg-slate-100 dark:hover:bg-surface-elevated text-slate-600 dark:text-text-secondary transition-colors"
+            title="Back to At-Risk Cases"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-text-primary">
+                Recovery Decision
+              </h1>
+              <span className="font-mono text-xs font-semibold px-2.5 py-0.5 rounded bg-slate-100 dark:bg-surface-elevated text-slate-700 dark:text-text-secondary border border-slate-200 dark:border-border-subtle">
+                {caseId}
+              </span>
+              <StatusBadge 
+                status={executionState === "success" ? "recovered" : executionState === "blocked" ? "stopped" : "inProgress"} 
+                size="sm" 
+              />
+            </div>
+            <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
+              Payment Stream Event ID: <span className="font-mono text-slate-700 dark:text-text-secondary">evt_rzp_9941a8</span> • Customer: Priya Sharma
+            </p>
+          </div>
+        </div>
+
+        {/* Demo State Selector */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-400 dark:text-text-muted hidden sm:inline">Scenario:</span>
+          <button 
+            onClick={handleResetDemo}
+            className={cn(
+              "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
+              executionState === "idle" 
+                ? "bg-brand text-white border-brand" 
+                : "bg-white dark:bg-surface text-slate-600 dark:text-text-muted border-slate-200 dark:border-border-subtle hover:bg-slate-50"
+            )}
+          >
+            Standard Plan
+          </button>
+          <button 
+            onClick={handlePolicyBlockDemo}
+            className={cn(
+              "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
+              executionState === "blocked" 
+                ? "bg-rose-600 text-white border-rose-600" 
+                : "bg-white dark:bg-surface text-slate-600 dark:text-text-muted border-slate-200 dark:border-border-subtle hover:bg-slate-50"
+            )}
+          >
+            Policy Block
+          </button>
+          <button 
+            onClick={handleTimeoutDemo}
+            className={cn(
+              "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
+              executionState === "timeout" 
+                ? "bg-amber-600 text-white border-amber-600" 
+                : "bg-white dark:bg-surface text-slate-600 dark:text-text-muted border-slate-200 dark:border-border-subtle hover:bg-slate-50"
+            )}
+          >
+            Timeout
+          </button>
         </div>
       </div>
 
-      {/* Signature Interaction Lifecycle */}
-      <div className="bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-xl p-6 shadow-sm overflow-hidden relative">
+      {/* 2. Lifecycle Progress Stepper (0 to 6) */}
+      <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm relative overflow-hidden">
         <div className="flex items-center justify-between relative z-10">
           {LIFECYCLE_STEPS.map((step, idx) => {
             const isCompleted = idx <= lifecycleProgress && executionState !== "idle";
             const isCurrent = idx === lifecycleProgress && (executionState === "executing" || executionState === "verifying");
             const isIdleCompleted = executionState === "idle" && idx <= 3;
             
-            let statusIcon = <div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />;
-            if (isIdleCompleted || (isCompleted && !isCurrent)) statusIcon = <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
-            if (isCurrent) statusIcon = <div className="w-2 h-2 rounded-full bg-brand animate-ping" />;
-            if (executionState === "timeout" && idx === 4) statusIcon = <Clock className="w-4 h-4 text-amber-500" />;
-            if (executionState === "blocked" && idx === 3) statusIcon = <XCircle className="w-4 h-4 text-rose-500" />;
+            let icon = <span className="text-[10px] font-bold text-slate-400 dark:text-text-muted">{idx}</span>;
+            if (isIdleCompleted || (isCompleted && !isCurrent)) icon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+            if (isCurrent) icon = <div className="w-2 h-2 rounded-full bg-brand animate-ping" />;
+            if (executionState === "timeout" && idx === 4) icon = <Clock className="w-3.5 h-3.5 text-amber-500" />;
+            if (executionState === "blocked" && idx === 3) icon = <XCircle className="w-3.5 h-3.5 text-rose-500" />;
 
             return (
-              <div key={step} className="flex flex-col items-center gap-2 relative">
+              <div key={step.key} className="flex flex-col items-center gap-2 relative">
                 <div className={cn(
-                  "text-xs font-semibold tracking-wider",
+                  "w-7 h-7 rounded-full flex items-center justify-center border-2 bg-white dark:bg-surface transition-all duration-300",
+                  isIdleCompleted || isCompleted || isCurrent 
+                    ? "border-brand shadow-sm bg-brand/5 dark:bg-brand-muted" 
+                    : "border-slate-200 dark:border-border-subtle",
+                  executionState === "blocked" && idx === 3 ? "border-rose-500 bg-rose-50 dark:bg-rose-950/40" : "",
+                  executionState === "success" && idx === 6 ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40" : ""
+                )}>
+                  {icon}
+                </div>
+                <span className={cn(
+                  "text-[11px] font-semibold tracking-tight hidden sm:block whitespace-nowrap",
                   isIdleCompleted || isCompleted || isCurrent ? "text-slate-900 dark:text-text-primary" : "text-slate-400 dark:text-text-muted"
                 )}>
-                  {step}
-                </div>
-                <div className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center border-2 bg-white dark:bg-surface z-10 transition-colors duration-500",
-                  isIdleCompleted || isCompleted || isCurrent ? "border-brand shadow-[0_0_15px_rgba(99,102,241,0.2)]" : "border-slate-200 dark:border-border-subtle",
-                  executionState === "blocked" && idx === 3 ? "border-rose-500 shadow-[0_0_15px_rgba(244,63,99,0.2)]" : "",
-                  executionState === "success" && idx === 6 ? "border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]" : ""
-                )}>
-                  {statusIcon}
-                </div>
+                  {step.label}
+                </span>
               </div>
             );
           })}
         </div>
-        {/* Connecting line */}
-        <div className="absolute top-[49px] left-12 right-12 h-[2px] bg-slate-100 dark:bg-surface-elevated -z-0">
+        {/* Progress Line */}
+        <div className="absolute top-[31px] sm:top-[35px] left-8 right-8 h-[2px] bg-slate-100 dark:bg-surface-elevated -z-0">
           <div 
-            className="h-full bg-brand transition-all duration-1000 ease-in-out"
+            className="h-full bg-brand transition-all duration-500 ease-out"
             style={{ width: `${Math.max(0, (executionState === "idle" ? 3 : lifecycleProgress) / 6) * 100}%` }}
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 3. Main Operational Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         
-        {/* Left Column - Details */}
+        {/* Left 2 Columns: Payment, AI Root Cause, Recovery Plan, Audit Timeline */}
         <div className="lg:col-span-2 space-y-6">
           
-          {/* Payment & AI Analysis */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-xl p-6 shadow-sm">
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary mb-4 flex items-center gap-2">
-                Payment Summary
-              </h3>
-              <div className="space-y-4">
-                <div>
-                  <div className="text-3xl font-semibold tabular-nums text-slate-900 dark:text-text-primary">₹8,499</div>
-                  <div className="text-sm font-medium text-rose-500 mt-1">Failed: UPI Timeout</div>
+          {/* Top Row: Payment Overview & AI Recommendation */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            
+            {/* Payment Summary Card */}
+            <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+              <div>
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-text-muted">
+                  Transaction at Risk
+                </span>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="text-3xl font-bold tabular-nums tracking-tight text-slate-900 dark:text-text-primary">
+                    ₹8,499
+                  </span>
+                  <span className="text-xs font-semibold text-rose-600 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded border border-rose-200/60 dark:border-rose-900/40">
+                    UPI Timeout
+                  </span>
                 </div>
-                <div className="grid grid-cols-2 gap-y-3 text-sm">
-                  <div className="text-slate-500 dark:text-text-muted">Payment ID</div>
-                  <div className="text-slate-900 dark:text-text-primary font-mono">pay_P4qX92vLmK0</div>
-                  <div className="text-slate-500 dark:text-text-muted">Customer</div>
-                  <div className="text-slate-900 dark:text-text-primary">Priya Sharma</div>
-                  <div className="text-slate-500 dark:text-text-muted">Timestamp</div>
-                  <div className="text-slate-900 dark:text-text-primary">Oct 24, 14:32 IST</div>
-                  <div className="text-slate-500 dark:text-text-muted">Recovery Prob</div>
-                  <div className="flex items-center"><ProbabilityMeter probability={0.81} /></div>
+              </div>
+
+              <div className="mt-5 pt-4 border-t border-slate-100 dark:border-border-subtle space-y-2.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-text-muted">Payment ID</span>
+                  <span className="font-mono text-slate-800 dark:text-text-primary font-medium">pay_P4qX92vLmK0</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-text-muted">Customer</span>
+                  <span className="text-slate-800 dark:text-text-primary font-medium">Priya Sharma</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-text-muted">Issuing Gateway</span>
+                  <span className="text-slate-800 dark:text-text-primary font-medium">HDFC UPI Stack</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 dark:text-text-muted">Recovery Probability</span>
+                  <ProbabilityMeter probability={0.81} />
                 </div>
               </div>
             </div>
 
-            <div className="bg-indigo-50/50 dark:bg-brand-muted/30 border border-indigo-100 dark:border-brand/20 rounded-xl p-6 shadow-sm">
-              <h3 className="text-sm font-semibold text-indigo-900 dark:text-brand flex items-center gap-2 mb-3">
-                <BrainCircuit className="w-4 h-4" /> AI Analysis
-              </h3>
-              <div className="bg-white/80 dark:bg-surface/80 rounded-lg p-4 border border-indigo-50 dark:border-border-subtle text-sm leading-relaxed text-slate-700 dark:text-text-secondary shadow-sm">
-                "UPI timeout appears temporary. Similar failures from this issuing bank have historically shown strong recovery potential after 30 minutes. The customer has not exceeded communication limits and the retry window is satisfied."
+            {/* AI Intelligence Card */}
+            <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-brand flex items-center gap-1.5">
+                    <BrainCircuit className="w-3.5 h-3.5" /> AI Recommendation
+                  </span>
+                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded">
+                    94% Confidence
+                  </span>
+                </div>
+                <div className="mt-3 p-3.5 bg-slate-50 dark:bg-surface-elevated/70 border border-slate-200/60 dark:border-border-subtle rounded-lg text-xs leading-relaxed text-slate-700 dark:text-text-secondary">
+                  "UPI timeout is classified as temporary infrastructure latency. HDFC node traffic normalized 12 minutes ago. Recommend immediate Razorpay test retry followed by payment link fallback."
+                </div>
               </div>
-              <div className="mt-4 flex items-center gap-4 text-xs font-medium text-indigo-700 dark:text-brand">
-                <div className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Root cause identified</div>
-                <div className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> 94% Confidence</div>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-border-subtle flex items-center justify-between text-xs text-slate-500 dark:text-text-muted">
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Triage passed
+                </span>
+                <span className="font-mono text-[11px]">LangGraph v2.4</span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Recovery Plan Sequence Flow */}
+          <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                  Multi-Stage Recovery Plan
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
+                  Ordered fallback hierarchy with policy bounds
+                </p>
+              </div>
+              <span className="text-[11px] font-mono font-medium text-slate-500">
+                Step 1 of 3
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* Step 1 */}
+              <div className="p-4 rounded-lg bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 relative">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+                    Primary Action
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                </div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                  Razorpay Retry
+                </div>
+                <p className="text-xs text-slate-600 dark:text-text-muted mt-1 leading-snug">
+                  Immediate idempotent retry via Razorpay test endpoint.
+                </p>
+              </div>
+
+              {/* Step 2 */}
+              <div className="p-4 rounded-lg bg-slate-50 dark:bg-surface-elevated border border-slate-200/80 dark:border-border-subtle">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 dark:text-text-muted uppercase tracking-wider">
+                    Fallback 1
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
+                </div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                  Payment Link
+                </div>
+                <p className="text-xs text-slate-500 dark:text-text-muted mt-1 leading-snug">
+                  Send personalized WhatsApp / SMS payment link with 24h validity.
+                </p>
+              </div>
+
+              {/* Step 3 */}
+              <div className="p-4 rounded-lg bg-slate-50 dark:bg-surface-elevated border border-slate-200/80 dark:border-border-subtle">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 dark:text-text-muted uppercase tracking-wider">
+                    Fallback 2
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
+                </div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                  Human Escalation
+                </div>
+                <p className="text-xs text-slate-500 dark:text-text-muted mt-1 leading-snug">
+                  Route case to recovery agent queue if automated steps fail.
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Recovery Plan */}
-          <div className="bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-xl p-6 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary mb-4">Recovery Plan</h3>
-            <div className="flex flex-col sm:flex-row items-stretch gap-3">
-              <div className="flex-1 bg-slate-50 dark:bg-surface-elevated border border-slate-200 dark:border-border-subtle rounded-lg p-4 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500" />
-                <div className="text-xs font-semibold text-slate-500 dark:text-text-muted mb-1 uppercase tracking-wider">Primary Action</div>
-                <div className="text-base font-medium text-slate-900 dark:text-text-primary">Retry Payment</div>
-                <div className="text-sm text-slate-500 dark:text-text-muted mt-2">Execute immediate Razorpay test-mode retry</div>
+          {/* Audit Timeline / Execution Ledger */}
+          <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                  Immutable Audit Ledger
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-text-muted mt-0.5">
+                  Cryptographically verifiable execution trail
+                </p>
               </div>
-              <div className="hidden sm:flex items-center justify-center text-slate-300 dark:text-border-subtle">
-                <ChevronRight className="w-6 h-6" />
-              </div>
-              <div className="flex-1 bg-slate-50 dark:bg-surface-elevated border border-slate-200 dark:border-border-subtle rounded-lg p-4 opacity-75">
-                <div className="text-xs font-semibold text-slate-500 dark:text-text-muted mb-1 uppercase tracking-wider">Fallback 1</div>
-                <div className="text-base font-medium text-slate-900 dark:text-text-primary">Send Payment Link</div>
-                <div className="text-sm text-slate-500 dark:text-text-muted mt-2">Hinglish SMS with link</div>
-              </div>
-              <div className="hidden sm:flex items-center justify-center text-slate-300 dark:text-border-subtle">
-                <ChevronRight className="w-6 h-6" />
-              </div>
-              <div className="flex-1 bg-slate-50 dark:bg-surface-elevated border border-slate-200 dark:border-border-subtle rounded-lg p-4 opacity-50">
-                <div className="text-xs font-semibold text-slate-500 dark:text-text-muted mb-1 uppercase tracking-wider">Fallback 2</div>
-                <div className="text-base font-medium text-slate-900 dark:text-text-primary">Escalate</div>
-                <div className="text-sm text-slate-500 dark:text-text-muted mt-2">Human review required</div>
-              </div>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-surface-elevated text-slate-500 border border-slate-200 dark:border-border-subtle">
+                SHA-256 Ledger
+              </span>
             </div>
-          </div>
-          
-          {/* Audit Timeline */}
-          <div className="bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-xl p-6 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary mb-4 flex items-center justify-between">
-              Audit Timeline
-              <span className="text-xs font-normal text-slate-500 dark:text-text-muted">Immutable Ledger</span>
-            </h3>
-            <div className="space-y-0">
-              <div className="relative pl-6 pb-6 border-l-2 border-slate-200 dark:border-border-subtle last:border-0 last:pb-0">
-                <div className="absolute left-[-5px] top-0.5 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
-                <div className="text-xs text-slate-500 dark:text-text-muted mb-0.5">14:32:01 IST • LAYER 0</div>
-                <div className="text-sm font-medium text-slate-900 dark:text-text-primary">Case Created</div>
-                <div className="text-sm text-slate-600 dark:text-text-secondary mt-1">Payment failure webhook received from Razorpay</div>
+
+            <div className="space-y-0 pl-2">
+              <div className="relative pl-6 pb-5 border-l border-slate-200 dark:border-border-subtle">
+                <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
+                <div className="flex items-baseline justify-between text-xs">
+                  <span className="font-semibold text-slate-900 dark:text-text-primary">Layer 0: Webhook Ingested</span>
+                  <span className="font-mono text-slate-400 dark:text-text-muted text-[11px]">14:32:01 IST</span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-text-secondary mt-0.5">
+                  Received payment.failed webhook for <span className="font-mono">pay_P4qX92vLmK0</span> from Razorpay.
+                </p>
               </div>
-              <div className="relative pl-6 pb-6 border-l-2 border-slate-200 dark:border-border-subtle last:border-0 last:pb-0">
-                <div className="absolute left-[-5px] top-0.5 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
-                <div className="text-xs text-slate-500 dark:text-text-muted mb-0.5">14:32:02 IST • LAYER 1</div>
-                <div className="text-sm font-medium text-slate-900 dark:text-text-primary">Risk Scored</div>
-                <div className="text-sm text-slate-600 dark:text-text-secondary mt-1">Probability 0.81, Expected ₹6,884. Passed triage.</div>
+
+              <div className="relative pl-6 pb-5 border-l border-slate-200 dark:border-border-subtle">
+                <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
+                <div className="flex items-baseline justify-between text-xs">
+                  <span className="font-semibold text-slate-900 dark:text-text-primary">Layer 1: Risk Assessment</span>
+                  <span className="font-mono text-slate-400 dark:text-text-muted text-[11px]">14:32:02 IST</span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-text-secondary mt-0.5">
+                  Probability evaluated at 0.81, expected value ₹6,884. Passed priority triage threshold.
+                </p>
               </div>
-              <div className="relative pl-6 pb-6 border-l-2 border-slate-200 dark:border-border-subtle last:border-0 last:pb-0">
-                <div className="absolute left-[-5px] top-0.5 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
-                <div className="text-xs text-slate-500 dark:text-text-muted mb-0.5">14:32:05 IST • LAYER 2</div>
-                <div className="text-sm font-medium text-slate-900 dark:text-text-primary">AI Decision</div>
-                <div className="text-sm text-slate-600 dark:text-text-secondary mt-1">Recovery plan generated: Retry → Payment Link</div>
+
+              <div className="relative pl-6 pb-5 border-l border-slate-200 dark:border-border-subtle">
+                <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-slate-400 ring-4 ring-white dark:ring-surface" />
+                <div className="flex items-baseline justify-between text-xs">
+                  <span className="font-semibold text-slate-900 dark:text-text-primary">Layer 2: AI Plan Synthesized</span>
+                  <span className="font-mono text-slate-400 dark:text-text-muted text-[11px]">14:32:05 IST</span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-text-secondary mt-0.5">
+                  Recovery strategy formulated: Immediate Retry → WhatsApp Payment Link fallback.
+                </p>
               </div>
-              
+
               {executionState === "success" && (
                 <>
-                  <div className="relative pl-6 pb-6 border-l-2 border-emerald-200 dark:border-emerald-900/30 last:border-0 last:pb-0">
-                    <div className="absolute left-[-5px] top-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-surface" />
-                    <div className="text-xs text-emerald-600 dark:text-emerald-500 mb-0.5">Just now • LAYER 4</div>
-                    <div className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Action Executed</div>
-                    <div className="text-sm text-emerald-600/80 dark:text-emerald-500/80 mt-1">Razorpay POST /payments/pay_P4qX92vLmK0/retry succeeded</div>
+                  <div className="relative pl-6 pb-5 border-l border-emerald-300 dark:border-emerald-800">
+                    <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-surface" />
+                    <div className="flex items-baseline justify-between text-xs">
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">Layer 4: Action Executed</span>
+                      <span className="font-mono text-emerald-600 dark:text-emerald-400 text-[11px]">Just now</span>
+                    </div>
+                    <p className="text-xs text-emerald-600/90 dark:text-emerald-400/90 mt-0.5">
+                      POST /v1/payments/pay_P4qX92vLmK0/retry returned 200 OK.
+                    </p>
                   </div>
-                  <div className="relative pl-6 last:border-0 last:pb-0">
-                    <div className="absolute left-[-5px] top-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-surface" />
-                    <div className="text-xs text-emerald-600 dark:text-emerald-500 mb-0.5">Just now • LAYER 5</div>
-                    <div className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Case Resolved</div>
-                    <div className="text-sm text-emerald-600/80 dark:text-emerald-500/80 mt-1">₹8,499 recovered successfully</div>
+                  <div className="relative pl-6">
+                    <div className="absolute left-[-5px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-surface" />
+                    <div className="flex items-baseline justify-between text-xs">
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">Layer 5: Case Resolved</span>
+                      <span className="font-mono text-emerald-600 dark:text-emerald-400 text-[11px]">Just now</span>
+                    </div>
+                    <p className="text-xs text-emerald-600/90 dark:text-emerald-400/90 mt-0.5 font-medium">
+                      ₹8,499 recovered successfully. Ledger entry committed.
+                    </p>
                   </div>
                 </>
               )}
             </div>
           </div>
+
         </div>
 
-        {/* Right Column - Policy & Action */}
-        <div className="space-y-6">
-          <div className="bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-xl p-6 shadow-sm sticky top-6">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-text-primary flex items-center gap-2 mb-6">
-              <ShieldAlert className="w-5 h-5 text-emerald-500" /> Policy & Guardrails
-            </h2>
-            
+        {/* Right 1 Column: Sticky Policy Verification & Execution Panel */}
+        <div className="space-y-6 lg:sticky lg:top-24">
+          <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100 dark:border-border-subtle">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className={cn(
+                  "w-4 h-4",
+                  executionState === "blocked" ? "text-rose-500" : "text-emerald-500"
+                )} />
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-text-primary">
+                  Policy Guardrails
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono uppercase font-semibold text-slate-400">
+                Deterministic
+              </span>
+            </div>
+
+            {/* Policy Checklist */}
             <div className="space-y-1 mb-6">
-              <PolicyCheck name="Retry limit" value="1 / 3 attempts" status="pass" />
-              <PolicyCheck name="Retry interval" value="45m elapsed" status="pass" description="Minimum 30m required" />
-              <PolicyCheck name="Customer contact limit" value="0 / 2" status="pass" />
-              <PolicyCheck name="Auto-action threshold" value="₹8,499 < ₹10k" status="pass" />
+              <PolicyCheck 
+                name="Max Retry Limit" 
+                value="1 / 3 attempts" 
+                status="pass" 
+              />
+              <PolicyCheck 
+                name="Retry Interval" 
+                value="45m elapsed" 
+                status="pass" 
+                description="Threshold: >= 30m required" 
+              />
+              <PolicyCheck 
+                name="Customer Contact Limit" 
+                value="0 / 2 today" 
+                status="pass" 
+              />
+              <PolicyCheck 
+                name="Auto-Action Value Cap" 
+                value="₹8,499 < ₹10k" 
+                status="pass" 
+              />
               {executionState === "blocked" && (
-                <PolicyCheck name="Cooling Period" value="Violated" status="fail" description="Case escalated previously" />
+                <PolicyCheck 
+                  name="Cooldown Enforcement" 
+                  value="Triggered" 
+                  status="fail" 
+                  description="Case has active customer dispute flag" 
+                />
               )}
             </div>
 
+            {/* Prominent Policy Verdict Banner */}
             <div className={cn(
-              "rounded-lg p-4 mb-6 flex items-center justify-center font-semibold text-sm tracking-widest uppercase border",
-              executionState === "blocked" ? "bg-rose-50 text-rose-600 border-rose-200" : "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/30"
+              "rounded-lg p-3.5 mb-6 flex items-center justify-center font-bold text-xs tracking-wider uppercase border text-center transition-colors",
+              executionState === "blocked" 
+                ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/40" 
+                : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/40"
             )}>
-              {executionState === "blocked" ? "POLICY BLOCKED" : "POLICY APPROVED"}
+              {executionState === "blocked" ? "POLICY BLOCKED • HUMAN REVIEW REQUIRED" : "✓ POLICY APPROVED FOR EXECUTION"}
             </div>
 
-            {/* Action Area */}
-            <div className="space-y-3">
+            {/* Primary Action Button Area */}
+            <div className="space-y-2.5">
               {executionState === "idle" && (
                 <>
                   <button 
                     onClick={handleExecute}
-                    className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-brand dark:hover:bg-brand-hover text-white py-3 px-4 rounded-lg font-medium transition-colors shadow-sm"
+                    className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand-hover text-white py-3 px-4 rounded-lg text-sm font-semibold transition-all shadow-sm hover:shadow active:scale-[0.99]"
                   >
-                    <Play className="w-4 h-4 fill-current" /> Execute Recovery
+                    <Play className="w-4 h-4 fill-current" />
+                    Execute Recovery Action
                   </button>
                   <button 
-                    className="w-full bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-slate-700 dark:text-text-secondary border border-slate-200 dark:border-border-subtle py-3 px-4 rounded-lg font-medium transition-colors"
+                    className="w-full flex items-center justify-center gap-1.5 bg-slate-50 dark:bg-surface-elevated hover:bg-slate-100 dark:hover:bg-surface-highlight text-slate-700 dark:text-text-secondary border border-slate-200 dark:border-border-subtle py-2.5 px-4 rounded-lg text-xs font-medium transition-colors"
                   >
-                    Review Plan
+                    Modify Recovery Strategy
                   </button>
-                  
-                  {/* Demo Controls hidden slightly for demo operator */}
-                  <div className="flex gap-2 pt-4 mt-4 border-t border-slate-100 dark:border-border-subtle">
-                    <button onClick={handleTimeoutDemo} className="text-[10px] text-slate-400 hover:text-amber-500 uppercase">Demo: Timeout</button>
-                    <button onClick={handlePolicyBlockDemo} className="text-[10px] text-slate-400 hover:text-rose-500 uppercase">Demo: Block</button>
-                  </div>
                 </>
               )}
 
               {executionState === "executing" && (
-                <button disabled className="w-full flex items-center justify-center gap-2 bg-slate-100 dark:bg-surface-elevated text-slate-500 dark:text-text-muted py-3 px-4 rounded-lg font-medium border border-slate-200 dark:border-border-subtle">
-                  <Activity className="w-4 h-4 animate-spin" /> Executing Action...
+                <button disabled className="w-full flex items-center justify-center gap-2 bg-slate-100 dark:bg-surface-elevated text-slate-600 dark:text-text-muted py-3 px-4 rounded-lg text-xs font-semibold border border-slate-200 dark:border-border-subtle">
+                  <Activity className="w-4 h-4 animate-spin text-brand" />
+                  Triggering Razorpay Retry...
                 </button>
               )}
               
               {executionState === "verifying" && (
-                <button disabled className="w-full flex items-center justify-center gap-2 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 py-3 px-4 rounded-lg font-medium border border-amber-200 dark:border-amber-800/30">
-                  <Activity className="w-4 h-4 animate-pulse" /> Verifying Outcome...
+                <button disabled className="w-full flex items-center justify-center gap-2 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 py-3 px-4 rounded-lg text-xs font-semibold border border-amber-200 dark:border-amber-900/40">
+                  <Activity className="w-4 h-4 animate-pulse" />
+                  Verifying Gateway Outcome...
                 </button>
               )}
 
               {executionState === "success" && (
-                <button disabled className="w-full flex items-center justify-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 py-3 px-4 rounded-lg font-medium border border-emerald-200 dark:border-emerald-800/30">
-                  <CheckCircle2 className="w-4 h-4" /> Recovered ₹8,499
-                </button>
+                <div className="space-y-3">
+                  <div className="w-full flex items-center justify-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 py-3 px-4 rounded-lg text-xs font-bold border border-emerald-200 dark:border-emerald-900/40">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Successfully Recovered ₹8,499
+                  </div>
+                  <button 
+                    onClick={handleResetDemo}
+                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Reset Demo State
+                  </button>
+                </div>
               )}
 
               {executionState === "timeout" && (
-                <div className="text-center space-y-3">
-                  <div className="text-amber-600 dark:text-amber-400 text-sm font-medium bg-amber-50 dark:bg-amber-900/20 py-2 rounded border border-amber-200 dark:border-amber-800/30">
-                    Recovery action timed out.
+                <div className="space-y-3">
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-lg text-xs text-amber-800 dark:text-amber-300">
+                    <div className="font-semibold flex items-center gap-1.5 mb-1">
+                      <Clock className="w-3.5 h-3.5" /> Action Timed Out
+                    </div>
+                    Gateway response unconfirmed. Duplicate execution prevented by idempotency key.
                   </div>
-                  <div className="text-slate-500 dark:text-text-muted text-xs">
-                    Verifying payment status... Action not confirmed — duplicate action prevented.
-                  </div>
+                  <button 
+                    onClick={handleResetDemo}
+                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Reset
+                  </button>
                 </div>
               )}
               
               {executionState === "blocked" && (
-                <div className="text-center space-y-3">
-                  <div className="text-rose-600 dark:text-rose-400 text-sm font-medium bg-rose-50 dark:bg-rose-900/20 py-2 rounded border border-rose-200 dark:border-rose-800/30">
-                    Action Blocked
+                <div className="space-y-3">
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 rounded-lg text-xs text-rose-800 dark:text-rose-300">
+                    <div className="font-semibold flex items-center gap-1.5 mb-1">
+                      <XCircle className="w-3.5 h-3.5" /> Action Prohibited
+                    </div>
+                    Deterministic rule violation detected. Automated recovery halted and assigned to operations desk.
                   </div>
-                  <div className="text-slate-500 dark:text-text-muted text-xs">
-                    Recovery recommendation blocked. Case escalated to human review.
-                  </div>
+                  <button 
+                    onClick={handleResetDemo}
+                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Reset Demo State
+                  </button>
                 </div>
               )}
-
             </div>
+
           </div>
         </div>
+
       </div>
+
     </div>
   );
 }
+

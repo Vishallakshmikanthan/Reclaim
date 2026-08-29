@@ -1,95 +1,172 @@
 "use client";
 
-import React from "react";
-import { Search, Filter, Download, ArrowUpDown } from "lucide-react";
-import { StatusBadge } from "@/components/ui/StatusBadge";
+import React, { useState } from "react";
+import Link from "next/link";
+import { Search, Filter, Download, ArrowUpDown, ShieldCheck, Clock, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const AUDIT_EVENTS = [
-  { id: "EV-99234", timestamp: "Oct 24, 14:32:05", layer: "LAYER 5", event: "CASE_RESOLVED", case: "RC-2024-081", desc: "₹8,499 recovered successfully via Razorpay Retry" },
-  { id: "EV-99233", timestamp: "Oct 24, 14:32:04", layer: "LAYER 4", event: "ACTION_SUCCEEDED", case: "RC-2024-081", desc: "Razorpay POST /payments/pay_P4qX92vLmK0/retry succeeded" },
-  { id: "EV-99232", timestamp: "Oct 24, 14:32:02", layer: "LAYER 4", event: "ACTION_EXECUTED", case: "RC-2024-081", desc: "Executing Primary Action: Retry Payment" },
-  { id: "EV-99231", timestamp: "Oct 24, 14:32:01", layer: "LAYER 3", event: "POLICY_APPROVED", case: "RC-2024-081", desc: "All 6 policy rules passed for primary action" },
-  { id: "EV-99230", timestamp: "Oct 24, 14:31:59", layer: "LAYER 2", event: "AGENT_DECISION", case: "RC-2024-081", desc: "Recovery plan generated: Retry → Payment Link" },
-  { id: "EV-99229", timestamp: "Oct 24, 14:31:58", layer: "LAYER 1", event: "RISK_SCORED", case: "RC-2024-081", desc: "Probability 0.81, Expected ₹6,884. Passed triage." },
-  { id: "EV-99228", timestamp: "Oct 24, 14:31:55", layer: "LAYER 0", event: "CASE_CREATED", case: "RC-2024-081", desc: "Payment failure webhook received from Razorpay" },
-  { id: "EV-99227", timestamp: "Oct 24, 14:15:02", layer: "LAYER 3", event: "POLICY_BLOCKED", case: "RC-2024-075", desc: "Action blocked: Maximum Retry Count Exceeded (3/3)" },
-  { id: "EV-99226", timestamp: "Oct 24, 14:15:03", layer: "LAYER 5", event: "CASE_ESCALATED", case: "RC-2024-075", desc: "Case escalated due to policy block on primary action" },
+  { id: "EV-99234", timestamp: "Oct 24, 14:32:05.120", layer: "LAYER 5", event: "CASE_RESOLVED", case: "RC-2024-081", desc: "₹8,499 recovered successfully via Razorpay test retry transaction.", latency: "12ms" },
+  { id: "EV-99233", timestamp: "Oct 24, 14:32:04.890", layer: "LAYER 4", event: "ACTION_SUCCEEDED", case: "RC-2024-081", desc: "Razorpay POST /payments/pay_P4qX92vLmK0/retry response 200 OK captured.", latency: "245ms" },
+  { id: "EV-99232", timestamp: "Oct 24, 14:32:02.140", layer: "LAYER 4", event: "ACTION_EXECUTED", case: "RC-2024-081", desc: "Executing Primary Action: Razorpay Payment Retry with idempotency key.", latency: "18ms" },
+  { id: "EV-99231", timestamp: "Oct 24, 14:32:01.002", layer: "LAYER 3", event: "POLICY_APPROVED", case: "RC-2024-081", desc: "All 6 deterministic policy rules passed. Auto-action value below ₹10k threshold.", latency: "3ms" },
+  { id: "EV-99230", timestamp: "Oct 24, 14:31:59.420", layer: "LAYER 2", event: "AGENT_DECISION", case: "RC-2024-081", desc: "LangGraph engine synthesized 3-stage plan: Immediate Retry → Payment Link → Escalation.", latency: "420ms" },
+  { id: "EV-99229", timestamp: "Oct 24, 14:31:58.110", layer: "LAYER 1", event: "RISK_SCORED", case: "RC-2024-081", desc: "ML Triage: Recovery probability 0.81, Expected Value ₹6,884. Priority: HIGH.", latency: "15ms" },
+  { id: "EV-99228", timestamp: "Oct 24, 14:31:55.040", layer: "LAYER 0", event: "CASE_CREATED", case: "RC-2024-081", desc: "Ingested payment.failed webhook for ₹8,499 from Razorpay test stream.", latency: "8ms" },
+  { id: "EV-99227", timestamp: "Oct 24, 14:15:02.810", layer: "LAYER 3", event: "POLICY_BLOCKED", case: "RC-2024-075", desc: "Action blocked: Maximum Retry Count Exceeded (3/3 attempts reached).", latency: "2ms" },
+  { id: "EV-99226", timestamp: "Oct 24, 14:15:03.020", layer: "LAYER 5", event: "CASE_ESCALATED", case: "RC-2024-075", desc: "Case escalated to manual operations desk due to policy lock.", latency: "10ms" },
 ];
 
 export default function AuditTrailPage() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [layerFilter, setLayerFilter] = useState("ALL");
+
+  const filteredEvents = AUDIT_EVENTS.filter((e) => {
+    const matchesSearch = 
+      e.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      e.case.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      e.event.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      e.desc.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesLayer = layerFilter === "ALL" || e.layer === layerFilter;
+    return matchesSearch && matchesLayer;
+  });
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto animate-in fade-in duration-500 pb-12">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+    <div className="space-y-8 animate-in fade-in duration-300 pb-16">
+      
+      {/* 1. Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2 border-b border-slate-200/60 dark:border-border-subtle">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-text-primary tracking-tight">Audit Trail</h1>
-          <p className="text-sm text-slate-500 dark:text-text-muted mt-1">Every recovery decision is traceable.</p>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-text-primary">
+              Audit Trail Ledger
+            </h1>
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/40 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5" /> Immutable
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
+            Every risk score, AI synthesis, policy evaluation, and payment retry is recorded deterministically
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface-elevated border border-slate-200 dark:border-border-subtle rounded-md hover:bg-slate-50 dark:hover:bg-surface-highlight transition-colors shadow-sm">
-            <Download className="w-4 h-4" /> Export CSV
+        <div className="flex items-center gap-2.5">
+          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm">
+            <Download className="w-3.5 h-3.5" /> Export Audit CSV
           </button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-xl shadow-sm flex flex-col h-[calc(100vh-14rem)]">
+      {/* 2. Main Ledger Container */}
+      <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[580px]">
         
-        {/* Controls */}
-        <div className="p-4 border-b border-slate-200 dark:border-border-subtle flex flex-col sm:flex-row gap-4 justify-between bg-slate-50/50 dark:bg-canvas-subtle/50 rounded-t-xl">
-          <div className="flex items-center gap-4 flex-1">
-            <div className="relative max-w-md w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+        {/* Controls Bar */}
+        <div className="p-3.5 sm:p-4 border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+          <div className="flex items-center gap-2.5 flex-1 max-w-md">
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
               <input 
                 type="text" 
-                placeholder="Search event ID, case, description..." 
-                className="w-full pl-9 pr-4 py-2 text-sm bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-md focus:outline-none focus:ring-1 focus:ring-brand text-slate-900 dark:text-text-primary placeholder:text-slate-400 transition-colors shadow-sm"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search event ID, case, reason..." 
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-white dark:bg-canvas border border-slate-200 dark:border-border-subtle rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-900 dark:text-text-primary placeholder:text-slate-400 transition-colors shadow-sm"
               />
             </div>
-            <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface-elevated border border-slate-200 dark:border-border-subtle rounded-md hover:bg-slate-50 dark:hover:bg-surface-highlight transition-colors shadow-sm">
-              <Filter className="w-4 h-4" /> Layer Filter
-            </button>
+            <select 
+              value={layerFilter}
+              onChange={(e) => setLayerFilter(e.target.value)}
+              aria-label="Filter by Layer"
+              className="text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg px-2.5 py-1.5 focus:outline-none shadow-sm cursor-pointer"
+            >
+              <option value="ALL">All Layers (0–5)</option>
+              <option value="LAYER 0">Layer 0 (Ingest)</option>
+              <option value="LAYER 1">Layer 1 (Risk Score)</option>
+              <option value="LAYER 2">Layer 2 (AI Decision)</option>
+              <option value="LAYER 3">Layer 3 (Policy Check)</option>
+              <option value="LAYER 4">Layer 4 (Execution)</option>
+              <option value="LAYER 5">Layer 5 (Resolution)</option>
+            </select>
+          </div>
+
+          <div className="text-xs text-slate-500 dark:text-text-muted self-end sm:self-auto">
+            Showing <strong>{filteredEvents.length}</strong> events
           </div>
         </div>
 
-        {/* Table */}
-        <div className="flex-1 overflow-auto">
-          <table className="w-full text-sm text-left relative">
-            <thead className="text-xs text-slate-500 dark:text-text-muted bg-slate-50 dark:bg-surface-elevated sticky top-0 border-b border-slate-200 dark:border-border-subtle shadow-sm z-10">
-              <tr>
-                <th className="px-6 py-4 font-medium"><div className="flex items-center gap-1 cursor-pointer hover:text-slate-800 dark:hover:text-text-primary">Timestamp <ArrowUpDown className="w-3 h-3"/></div></th>
-                <th className="px-6 py-4 font-medium">Event</th>
-                <th className="px-6 py-4 font-medium">Layer</th>
-                <th className="px-6 py-4 font-medium">Case</th>
-                <th className="px-6 py-4 font-medium">Description</th>
+        {/* Ledger Table */}
+        <div className="flex-1 overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
+                <th className="py-3 px-4 sm:px-6">Timestamp (IST)</th>
+                <th className="py-3 px-4">Layer</th>
+                <th className="py-3 px-4">Event Type</th>
+                <th className="py-3 px-4">Case ID</th>
+                <th className="py-3 px-4">Execution Summary & Payload</th>
+                <th className="py-3 px-4 sm:px-6 text-right">Latency</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-border-subtle font-mono text-xs">
-              {AUDIT_EVENTS.map((row) => (
+            <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
+              {filteredEvents.map((row) => (
                 <tr 
                   key={row.id} 
-                  className="hover:bg-slate-50 dark:hover:bg-surface-highlight/30 transition-colors cursor-pointer group"
+                  className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors group"
                 >
-                  <td className="px-6 py-4 text-slate-500 dark:text-text-muted whitespace-nowrap">{row.timestamp}</td>
-                  <td className="px-6 py-4">
+                  <td className="py-3.5 px-4 sm:px-6 font-mono text-slate-500 dark:text-text-muted whitespace-nowrap text-[11px]">
+                    {row.timestamp}
+                  </td>
+                  <td className="py-3.5 px-4">
+                    <span className="font-mono text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-surface-elevated text-slate-600 dark:text-text-secondary border border-slate-200 dark:border-border-subtle">
+                      {row.layer}
+                    </span>
+                  </td>
+                  <td className="py-3.5 px-4 font-mono font-semibold">
                     <span className={cn(
-                      "px-2 py-1 rounded font-medium",
-                      row.event.includes("APPROVED") || row.event.includes("SUCCEEDED") || row.event.includes("RESOLVED") ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" :
-                      row.event.includes("BLOCKED") || row.event.includes("FAILED") ? "bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400" :
-                      row.event.includes("ESCALATED") ? "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400" :
-                      "bg-indigo-50 text-indigo-600 dark:bg-brand-muted dark:text-brand"
+                      "px-2 py-0.5 rounded text-[11px]",
+                      row.event.includes("APPROVED") || row.event.includes("SUCCEEDED") || row.event.includes("RESOLVED") 
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" 
+                        : row.event.includes("BLOCKED") || row.event.includes("FAILED") 
+                        ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400" 
+                        : row.event.includes("ESCALATED") 
+                        ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" 
+                        : "bg-indigo-50 text-indigo-700 dark:bg-brand-muted dark:text-brand"
                     )}>
                       {row.event}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-slate-500 dark:text-text-muted">{row.layer}</td>
-                  <td className="px-6 py-4 font-medium text-brand hover:underline">{row.case}</td>
-                  <td className="px-6 py-4 text-slate-700 dark:text-text-secondary truncate max-w-md">{row.desc}</td>
+                  <td className="py-3.5 px-4 font-mono font-medium text-brand hover:underline">
+                    <Link href={`/cases/${row.case}`} className="flex items-center gap-1">
+                      {row.case}
+                      <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </Link>
+                  </td>
+                  <td className="py-3.5 px-4 text-slate-700 dark:text-text-secondary max-w-lg leading-relaxed">
+                    {row.desc}
+                  </td>
+                  <td className="py-3.5 px-4 sm:px-6 text-right font-mono text-[11px] text-slate-400 dark:text-text-muted whitespace-nowrap">
+                    {row.latency}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* Footer */}
+        <div className="p-3 border-t border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface text-xs text-slate-500 dark:text-text-muted flex items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>Audit retention period: 7 Years (PCI-DSS & RBI FinTech Compliance)</span>
+          </div>
+          <div className="font-mono text-[11px]">
+            Node Hash: #7f0a9b23
+          </div>
+        </div>
+
       </div>
+
     </div>
   );
 }
+

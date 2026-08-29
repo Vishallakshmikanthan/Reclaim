@@ -1,7 +1,7 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 
-type StatusType = "recovered" | "atRisk" | "inProgress" | "escalated" | "stopped";
+export type StatusType = "recovered" | "atRisk" | "inProgress" | "escalated" | "stopped";
 
 const statusConfig: Record<StatusType, { label: string; bg: string; text: string; dot: string }> = {
   recovered: {
@@ -36,18 +36,30 @@ const statusConfig: Record<StatusType, { label: string; bg: string; text: string
   },
 };
 
-export function StatusBadge({ status, className }: { status: StatusType; className?: string }) {
-  const config = statusConfig[status];
+export function StatusBadge({ 
+  status, 
+  className,
+  size = "md",
+}: { 
+  status: StatusType; 
+  className?: string;
+  size?: "sm" | "md";
+}) {
+  const config = statusConfig[status] || statusConfig.inProgress;
   
   return (
-    <span className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium",
-      config.bg,
-      config.text,
-      className
-    )}>
-      <span className={cn("w-1.5 h-1.5 rounded-full", config.dot)} />
+    <span
+      className={cn(
+        "inline-flex items-center font-medium tracking-tight rounded-md whitespace-nowrap transition-colors",
+        size === "sm" ? "gap-1 px-2 py-0.5 text-[11px]" : "gap-1.5 px-2.5 py-1 text-xs",
+        config.bg,
+        config.text,
+        className
+      )}
+    >
+      <span className={cn("rounded-full flex-shrink-0", size === "sm" ? "w-1 h-1" : "w-1.5 h-1.5", config.dot)} />
       {config.label}
     </span>
   );
 }
+
