@@ -9,6 +9,7 @@ import { PrioritizedOpportunities } from "@/components/PrioritizedOpportunities"
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ProbabilityMeter } from "@/components/ui/ProbabilityMeter";
 import { CaseDrawer } from "@/components/CaseDrawer";
+import { FailureSimulationModal } from "@/components/FailureSimulationModal";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { formatCurrency, cn } from "@/lib/utils";
 import { useReclaim } from "@/lib/context/ReclaimContext";
@@ -22,11 +23,12 @@ import {
   generateMerchantInsights 
 } from "@/lib/metrics/metricsService";
 import { Case, AuditEvent } from "@/lib/types";
+import { ServiceType } from "@/lib/resilience/types";
 import { 
   ArrowUpRight, 
   Activity, 
   ShieldCheck, 
-  ShieldAlert,
+  ShieldAlert, 
   CheckCircle2, 
   Clock, 
   Sparkles,
@@ -46,7 +48,8 @@ import {
   Play,
   UserCheck,
   Search,
-  Filter
+  Filter,
+  Server
 } from "lucide-react";
 
 export default function CommandCenter() {
@@ -54,6 +57,8 @@ export default function CommandCenter() {
     cases, 
     auditEvents, 
     metrics, 
+    serviceHealth,
+    restoreService,
     resetDemoData, 
     executeRecovery, 
     escalateCase 
@@ -61,6 +66,7 @@ export default function CommandCenter() {
 
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isChaosModalOpen, setIsChaosModalOpen] = useState(false);
   const [trendWindow, setTrendWindow] = useState<"24h" | "7d" | "30d" | "90d">("24h");
   
   // Operational Queue Filter State
@@ -126,6 +132,11 @@ export default function CommandCenter() {
       policyComplianceRate: 100,
     };
   }, [cases]);
+
+  // Degraded Services Detection
+  const degradedServices = useMemo(() => {
+    return Object.values(serviceHealth).filter(s => s.status !== "OPERATIONAL");
+  }, [serviceHealth]);
 
   // Dynamic chart data from live metrics and selected trend window
   const chartTrendData = useMemo(() => {
@@ -207,9 +218,17 @@ export default function CommandCenter() {
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-text-primary">
               Merchant Revenue Recovery Control Center
             </h1>
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-900/40 px-2.5 py-1 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Realtime Cockpit
+            <span className={cn(
+              "inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border",
+              degradedServices.length > 0
+                ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-300"
+                : "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-900/40"
+            )}>
+              <span className={cn(
+                "w-1.5 h-1.5 rounded-full",
+                degradedServices.length > 0 ? "bg-amber-500 animate-bounce" : "bg-emerald-500 animate-pulse"
+              )} />
+              {degradedServices.length > 0 ? `${degradedServices.length} Service Degraded` : "Realtime Cockpit"}
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
@@ -217,21 +236,54 @@ export default function CommandCenter() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => setIsChaosModalOpen(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 px-3 py-1.5 rounded-lg shadow-xs hover:bg-amber-100 dark:hover:bg-amber-950/60 transition-colors"
+            title="Open Developer & Judge Resilience Lab"
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            Chaos Simulation
+          </button>
+
           <button
             onClick={resetDemoData}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-text-secondary hover:text-brand bg-white dark:bg-surface px-3 py-1.5 rounded-lg border border-slate-200 dark:border-border-subtle shadow-sm transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-text-secondary hover:text-brand bg-white dark:bg-surface px-3 py-1.5 rounded-lg border border-slate-200 dark:border-border-subtle shadow-xs transition-colors"
             title="Reset dataset to default demo state"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             Reset Demo
           </button>
-          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-text-muted font-mono">
+          
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-text-muted font-mono">
             <Clock className="w-3.5 h-3.5" />
             <span>Updated seconds ago</span>
           </div>
         </div>
       </div>
+
+      {/* Degraded Services Alert Banner */}
+      {degradedServices.length > 0 && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-900 dark:text-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-300">
+          <div className="flex items-start gap-2.5">
+            <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-xs uppercase tracking-wider block">
+                Safety Mode Active: {degradedServices.map(s => s.name).join(", ")} {degradedServices[0]?.status}
+              </span>
+              <p className="text-xs text-amber-800 dark:text-amber-400 mt-0.5">
+                {degradedServices[0]?.failureReason || "System dependency offline. Unsafe automated financial actions are paused."}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => restoreService(degradedServices[0]?.service as ServiceType)}
+            className="self-start sm:self-auto px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors whitespace-nowrap"
+          >
+            Restore {degradedServices[0]?.name}
+          </button>
+        </div>
+      )}
 
       {/* 2. Top-Level Financial Story KPI Cards (Money First) */}
       <section aria-labelledby="kpi-heading">
@@ -670,34 +722,36 @@ export default function CommandCenter() {
         </div>
       </section>
 
-      {/* 9. System Health & Infrastructure Architecture */}
+      {/* 9. Live Service Health & Infrastructure Architecture */}
       <section className="bg-slate-50/50 dark:bg-surface/50 border border-slate-200/80 dark:border-border-subtle rounded-xl p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-emerald-500" />
             <span className="text-xs font-semibold text-slate-900 dark:text-text-primary uppercase tracking-wider">
-              Service Health & Telemetry Status
+              Live Core Service Health & Telemetry Status
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
-            {[
-              { name: "Layer 0 Ingest", status: "Operational", ping: "8ms" },
-              { name: "Layer 1 ML Scorer", status: "Active", ping: "15ms" },
-              { name: "Layer 2 AI Decision", status: "Operational", ping: "420ms" },
-              { name: "Layer 3 Policy Engine", status: "Deterministic", ping: "100% pass" },
-              { name: "Layer 4 Razorpay Test API", status: "Connected", ping: "Live" },
-              { name: "Layer 5 Audit Ledger", status: "Synced", ping: "Immutable" },
-            ].map((sys) => (
-              <div key={sys.name} className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-slate-700 dark:text-text-secondary font-medium">
-                  {sys.name}
-                </span>
-                <span className="text-[10px] text-slate-400 dark:text-text-muted font-mono">
-                  ({sys.ping})
-                </span>
-              </div>
-            ))}
+            {Object.values(serviceHealth).map((sys) => {
+              const isOperational = sys.status === "OPERATIONAL";
+              return (
+                <div key={sys.service} className="flex items-center gap-1.5">
+                  <span className={cn(
+                    "w-2 h-2 rounded-full",
+                    isOperational ? "bg-emerald-500 animate-pulse" : "bg-rose-500 animate-bounce"
+                  )} />
+                  <span className={cn(
+                    "font-medium",
+                    isOperational ? "text-slate-700 dark:text-text-secondary" : "text-rose-600 font-bold"
+                  )}>
+                    {sys.name}
+                  </span>
+                  <span className="text-[10px] text-slate-400 dark:text-text-muted font-mono">
+                    ({sys.status})
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -708,6 +762,13 @@ export default function CommandCenter() {
         onClose={() => setIsDrawerOpen(false)}
         caseItem={selectedCase}
       />
+
+      {/* Failure Simulation / Chaos Lab Modal */}
+      <FailureSimulationModal
+        isOpen={isChaosModalOpen}
+        onClose={() => setIsChaosModalOpen(false)}
+      />
+
     </div>
   );
 }

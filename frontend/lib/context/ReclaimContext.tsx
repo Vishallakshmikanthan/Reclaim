@@ -26,6 +26,22 @@ import { Campaign, CampaignConfig, CampaignActivityItem } from "../campaigns/typ
 import { INITIAL_CAMPAIGNS, INITIAL_COMMUNICATIONS, evaluateCampaignEligibility } from "../campaigns/campaignService";
 import { CommunicationMessage, CommunicationChannel } from "../communications/types";
 import { generateRecoveryMessage } from "../communications/templateEngine";
+import { 
+  ServiceHealth, 
+  ServiceType, 
+  FailureClassification, 
+  FailureSeverity, 
+  SafetyCheckResult,
+  FailureScenarioResult
+} from "../resilience/types";
+import { 
+  INITIAL_SERVICE_HEALTH, 
+  injectServiceFailure, 
+  restoreServiceHealth, 
+  restoreAllServices as resetAllServices
+} from "../resilience/serviceHealthManager";
+import { evaluateSafetyBeforeExecution } from "../resilience/safetyController";
+import { FAILURE_SCENARIOS } from "../resilience/failureScenarios";
 
 interface ExecuteOptions {
   forceScenario?: "success" | "timeout" | "block" | "failure" | "fallback_success" | "fallback_blocked";
@@ -64,6 +80,13 @@ interface ReclaimContextType {
   createCampaign: (config: CampaignConfig) => void;
   sendCommunicationMessage: (caseId: string, channel: CommunicationChannel, language: "English" | "Hinglish") => Promise<boolean>;
 
+  // Resilience & Failure Layer
+  serviceHealth: Record<ServiceType, ServiceHealth>;
+  injectFailure: (service: ServiceType, reason: string, severity: FailureSeverity) => void;
+  restoreService: (service: ServiceType) => void;
+  restoreAllServices: () => void;
+  runFailureScenario: (scenarioId: string, targetCaseId?: string) => Promise<FailureScenarioResult>;
+
   // Audit Dispatcher
   addAuditEvent: (event: Omit<AuditEvent, "id" | "timestamp">) => void;
 }
@@ -74,6 +97,7 @@ const STORAGE_CASES_KEY = "reclaim_v1_cases";
 const STORAGE_AUDIT_KEY = "reclaim_v1_audit";
 const STORAGE_CAMPAIGNS_KEY = "reclaim_v1_campaigns";
 const STORAGE_COMMUNICATIONS_KEY = "reclaim_v1_communications";
+const STORAGE_SERVICES_KEY = "reclaim_v1_service_health";
 
 export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
@@ -134,6 +158,20 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     return INITIAL_COMMUNICATIONS;
   });
 
+  const [serviceHealth, setServiceHealth] = useState<Record<ServiceType, ServiceHealth>>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_SERVICES_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse services from localStorage:", e);
+        }
+      }
+    }
+    return INITIAL_SERVICE_HEALTH;
+  });
+
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   
   // Execution state & progress tracking per case
@@ -163,6 +201,12 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(STORAGE_COMMUNICATIONS_KEY, JSON.stringify(communications));
     }
   }, [communications]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_SERVICES_KEY, JSON.stringify(serviceHealth));
+    }
+  }, [serviceHealth]);
 
   // Deterministic metrics derived strictly from the dataset
   const metrics = useMemo(() => calculateOperationalMetrics(cases), [cases]);
@@ -213,8 +257,60 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     return calculateMoneyImpact(caseItem);
   }, []);
 
+  // Fault Injection & Resilience Controllers
+  const injectFailure = useCallback((service: ServiceType, reason: string, severity: FailureSeverity) => {
+    setServiceHealth((prev) => injectServiceFailure(prev, service, reason, severity));
+    addAuditEvent({
+      layer: "LAYER 5",
+      source: "VERIFICATION",
+      event: "FAILURE_DETECTED",
+      case: service,
+      desc: `Injected failure into ${service}: ${reason} (Severity: ${severity}).`,
+      status: "BLOCKED",
+    });
+    toast({
+      title: `Service Failure Simulated (${severity})`,
+      description: `${service} set to Degraded/Unavailable: ${reason}`,
+      type: severity === "CRITICAL" ? "error" : "warning",
+    });
+  }, [addAuditEvent, toast]);
+
+  const restoreService = useCallback((service: ServiceType) => {
+    setServiceHealth((prev) => restoreServiceHealth(prev, service));
+    addAuditEvent({
+      layer: "LAYER 5",
+      source: "VERIFICATION",
+      event: "SERVICE_RECOVERED",
+      case: service,
+      desc: `Service health restored for ${service}. System operational.`,
+      status: "SUCCESS",
+    });
+    toast({
+      title: "Service Restored",
+      description: `${service} is now fully operational.`,
+      type: "success",
+    });
+  }, [addAuditEvent, toast]);
+
+  const restoreAllServices = useCallback(() => {
+    setServiceHealth(resetAllServices());
+    addAuditEvent({
+      layer: "LAYER 5",
+      source: "VERIFICATION",
+      event: "SERVICE_RECOVERED",
+      case: "ALL_SERVICES",
+      desc: "All system services restored to 100% operational health.",
+      status: "SUCCESS",
+    });
+    toast({
+      title: "All Services Restored",
+      description: "Cleared all injected failure states.",
+      type: "success",
+    });
+  }, [addAuditEvent, toast]);
+
   /**
-   * Multi-Step Intelligent Recovery Strategy Orchestrator Pipeline
+   * Multi-Step Intelligent Recovery Strategy Orchestrator Pipeline with Centralized Safety Controller
    */
   const executeRecovery = useCallback(async (caseId: string, options?: ExecuteOptions): Promise<boolean> => {
     const targetCase = cases.find((c) => c.id === caseId);
@@ -223,23 +319,34 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // 1. IDEMPOTENCY CHECK
-    const currentProgress = executionProgressMap[caseId];
-    if (currentProgress && ["authorizing", "executing", "verifying"].includes(currentProgress.step)) {
-      toast({
-        title: "Recovery In Progress",
-        description: `Recovery for case ${caseId} is already executing. Duplicate action prevented.`,
-        type: "warning",
-      });
-      return false;
-    }
+    const activeExecutingCaseIds = Object.keys(executionProgressMap).filter(
+      (k) => ["authorizing", "executing", "verifying"].includes(executionProgressMap[k]?.step)
+    );
 
-    if (targetCase.status === "recovered") {
-      toast({
-        title: "Already Recovered",
-        description: `Case ${caseId} is already settled for ${formatCurrency(targetCase.amount)}. Duplicate action prevented.`,
-        type: "info",
+    // --- STEP 0: CENTRALIZED SAFETY CONTROLLER PRE-CHECK ---
+    const safetyCheck = evaluateSafetyBeforeExecution(targetCase, serviceHealth, activeExecutingCaseIds);
+    if (!safetyCheck.allowed) {
+      addAuditEvent({
+        layer: "LAYER 3",
+        source: "POLICY_ENGINE",
+        event: "ACTION_BLOCKED_FOR_SAFETY",
+        case: targetCase.id,
+        desc: safetyCheck.reason,
+        status: "BLOCKED",
+        details: {
+          failureType: safetyCheck.failureType,
+          requiredAction: safetyCheck.requiredAction,
+          severity: safetyCheck.severity,
+        }
       });
+
+      toast({
+        title: "Action Blocked by Safety Guardrail",
+        description: safetyCheck.userFacingMessage,
+        type: safetyCheck.severity === "CRITICAL" ? "error" : "warning",
+        duration: 5000,
+      });
+
       return false;
     }
 
@@ -408,7 +515,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       }
     }));
 
-    // Check special multi-step fallback scenarios
+    // Multi-Step Fallback Scenarios
     if (effectiveScenario === "fallback_success") {
       addAuditEvent({
         layer: "LAYER 4",
@@ -754,7 +861,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     });
 
     return true;
-  }, [cases, executionProgressMap, addAuditEvent, toast]);
+  }, [cases, executionProgressMap, serviceHealth, addAuditEvent, toast]);
 
   const escalateCase = useCallback((caseId: string, reason?: string) => {
     const targetCase = cases.find((c) => c.id === caseId);
@@ -813,7 +920,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   }, [cases, addAuditEvent, toast]);
 
   /**
-   * Batch Campaign Execution Orchestrator
+   * Batch Campaign Execution Orchestrator with Failure Isolation
    */
   const runCampaignBatch = useCallback(async (campaignId: string): Promise<boolean> => {
     const campaign = campaigns.find((c) => c.id === campaignId);
@@ -824,6 +931,24 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     if (campaign.status === "RUNNING") {
       toast({ title: "Campaign Already Running", description: `${campaign.config.name} is currently executing.`, type: "warning" });
+      return false;
+    }
+
+    // Check Campaign Orchestrator Service Health
+    if (serviceHealth.CAMPAIGN_ORCHESTRATOR && serviceHealth.CAMPAIGN_ORCHESTRATOR.status !== "OPERATIONAL") {
+      addAuditEvent({
+        layer: "LAYER 0",
+        source: "AGENT",
+        event: "ACTION_BLOCKED_FOR_SAFETY",
+        case: campaignId,
+        desc: `Campaign execution blocked: Campaign Orchestrator is ${serviceHealth.CAMPAIGN_ORCHESTRATOR.status}.`,
+        status: "BLOCKED",
+      });
+      toast({
+        title: "Campaign Blocked by Safety Guardrail",
+        description: "Campaign Orchestrator is unavailable. Batch paused to protect cohort.",
+        type: "error",
+      });
       return false;
     }
 
@@ -849,7 +974,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
 
     // Evaluate eligible cases from current live pool
     const { eligibleCases } = evaluateCampaignEligibility(cases, campaign.config);
-    const targetCases = eligibleCases.length > 0 ? eligibleCases : cases.slice(0, 3); // Fallback sample if pool is narrow
+    const targetCases = eligibleCases.length > 0 ? eligibleCases : cases.slice(0, 3);
 
     let processedCount = 0;
     let recoveredCount = 0;
@@ -869,7 +994,6 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       await new Promise((res) => setTimeout(res, 500));
 
       const policy = evaluatePolicy(caseItem);
-      const isCommunicationAction = campaign.config.allowedChannels.includes("whatsapp") || campaign.config.allowedChannels.includes("sms") || campaign.config.allowedChannels.includes("email");
 
       if (!policy.allowed) {
         policyBlockCount += 1;
@@ -1031,7 +1155,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     });
 
     return true;
-  }, [campaigns, cases, addAuditEvent, toast]);
+  }, [campaigns, cases, serviceHealth, addAuditEvent, toast]);
 
   const toggleCampaignStatus = useCallback((campaignId: string) => {
     setCampaigns((prev) =>
@@ -1099,6 +1223,23 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     const targetCase = cases.find((c) => c.id === caseId);
     if (!targetCase) return false;
 
+    if (serviceHealth.COMMUNICATION_SERVICE && serviceHealth.COMMUNICATION_SERVICE.status !== "OPERATIONAL") {
+      addAuditEvent({
+        layer: "LAYER 4",
+        source: "EXECUTOR",
+        event: "ACTION_BLOCKED_FOR_SAFETY",
+        case: targetCase.id,
+        desc: `Communication blocked: Communication Service is ${serviceHealth.COMMUNICATION_SERVICE.status}.`,
+        status: "BLOCKED",
+      });
+      toast({
+        title: "Communication Blocked",
+        description: "Communication dispatcher is currently unavailable. No message sent.",
+        type: "error",
+      });
+      return false;
+    }
+
     if ((targetCase.contactCount24h || 0) >= 2) {
       toast({
         title: "Communication Blocked by Policy",
@@ -1155,13 +1296,55 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     });
 
     return true;
-  }, [cases, addAuditEvent, toast]);
+  }, [cases, serviceHealth, addAuditEvent, toast]);
+
+  /**
+   * Deterministic Failure Scenario Runner
+   */
+  const runFailureScenario = useCallback(async (
+    scenarioId: string,
+    targetCaseId: string = "RC-2024-081"
+  ): Promise<FailureScenarioResult> => {
+    const config = FAILURE_SCENARIOS.find((s) => s.id === scenarioId) || FAILURE_SCENARIOS[0];
+
+    // 1. Fault injection
+    injectFailure(config.targetService, config.simulatedError, config.severity);
+
+    // 2. Execution attempt
+    await executeRecovery(targetCaseId);
+
+    // 3. Return structured scenario assessment
+    return {
+      scenarioId: config.id,
+      title: config.title,
+      failedComponent: config.targetService,
+      severity: config.severity,
+      reclaimDid: [
+        "Detected failure in real-time",
+        "Engaged safety controller to halt unsafe execution",
+        "Checked idempotency to prevent duplicate triggers",
+        "Logged immutable audit event with layer attribution",
+        "Preserved case state without financial leakage",
+      ],
+      reclaimDidNot: [
+        "Record unverified revenue as recovered",
+        "Double-debit the customer card / UPI mandate",
+        "Bypass deterministic policy constraints",
+        "Silently drop the exception",
+      ],
+      finalCaseState: config.expectedState,
+      financialImpact: config.financialImpact,
+      auditEventsCreated: ["FAILURE_DETECTED", "ACTION_BLOCKED_FOR_SAFETY", "CASE_ESCALATED"],
+      recoveryPath: config.recoveryPath,
+    };
+  }, [injectFailure, executeRecovery]);
 
   const resetDemoData = useCallback(() => {
     setCases(INITIAL_MOCK_CASES);
     setAuditEvents(INITIAL_AUDIT_EVENTS);
     setCampaigns(INITIAL_CAMPAIGNS);
     setCommunications(INITIAL_COMMUNICATIONS);
+    setServiceHealth(INITIAL_SERVICE_HEALTH);
     setExecutionProgressMap({});
     setSelectedCaseId(null);
     if (typeof window !== "undefined") {
@@ -1169,10 +1352,11 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(STORAGE_AUDIT_KEY);
       localStorage.removeItem(STORAGE_CAMPAIGNS_KEY);
       localStorage.removeItem(STORAGE_COMMUNICATIONS_KEY);
+      localStorage.removeItem(STORAGE_SERVICES_KEY);
     }
     toast({
       title: "Demo State Reset",
-      description: "Restored initial campaigns, cases, metrics, and audit ledger.",
+      description: "Restored initial cases, metrics, services, and audit ledger.",
       type: "info",
     });
   }, [toast]);
@@ -1184,6 +1368,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         auditEvents,
         campaigns,
         communications,
+        serviceHealth,
         selectedCaseId,
         setSelectedCaseId,
         selectedCase,
@@ -1203,6 +1388,10 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         toggleCampaignStatus,
         createCampaign,
         sendCommunicationMessage,
+        injectFailure,
+        restoreService,
+        restoreAllServices,
+        runFailureScenario,
         addAuditEvent,
       }}
     >

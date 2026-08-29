@@ -320,7 +320,19 @@ export type AuditEventType =
   | "CASE_RESOLVED" 
   | "CASE_ESCALATED" 
   | "CASE_STOPPED"
-  | "RECOVERY_VERIFIED";
+  | "RECOVERY_VERIFIED"
+  | "FAILURE_DETECTED"
+  | "SERVICE_DEGRADED"
+  | "ACTION_BLOCKED_FOR_SAFETY"
+  | "RECOVERY_ATTEMPTED"
+  | "RECOVERY_SUCCEEDED"
+  | "RECOVERY_FAILED"
+  | "OUTCOME_UNKNOWN"
+  | "DUPLICATE_PREVENTED"
+  | "ESCALATION_CREATED"
+  | "SERVICE_RECOVERED"
+  | "CAMPAIGN_PAUSED"
+  | "CAMPAIGN_RESUMED";
 
 export interface AuditEventDetails {
   policyRule?: string;
@@ -336,6 +348,9 @@ export interface AuditEventDetails {
   nextAction?: string;
   strategyStep?: string;
   isFallback?: boolean;
+  failureType?: string;
+  requiredAction?: string;
+  severity?: string;
 }
 
 export interface AuditEvent {
