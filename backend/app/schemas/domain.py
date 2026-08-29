@@ -19,7 +19,8 @@ class Payment(BaseModel): payment_id: str; order_id: str; amount: int = Field(gt
 class Case(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     id: str = Field(default_factory=lambda: ident("case")); payment_id: str; order_id: str; customer_id: str; customer: str; customer_email: str; customer_phone: str
-    amount: int = Field(gt=0, description="Integer minor units (paise)"); payment_method: PaymentMethod; failure_type: FailureType; failure_reason: str; prob: float = Field(ge=0, le=1); expected: int = Field(ge=0); status: CaseStatus = CaseStatus.at_risk; age: str = "0 min"; created_at: datetime = Field(default_factory=now); updated_at: datetime | None = None; last_attempt_at: datetime | None = None; resolved_at: datetime | None = None; retry_count: int = Field(default=0, ge=0, le=10); max_retries: int = Field(default=3, ge=0, le=10); contact_count_24h: int = Field(default=0, ge=0); max_contacts_24h: int = Field(default=2, ge=1); risk_score: float = Field(default=0, ge=0, le=1); strategy: str = ""; bank: str | None = None; demo_scenario: str = "STANDARD"; recovered_amount: int = Field(default=0, ge=0)
+    amount: int = Field(gt=0, description="Integer minor units (paise)"); payment_method: PaymentMethod; failure_type: FailureType; failure_reason: str; prob: float = Field(ge=0, le=1); expected: int = Field(ge=0); status: CaseStatus = CaseStatus.at_risk; age: str = "0 min"; created_at: datetime = Field(default_factory=now); updated_at: datetime | None = None; last_attempt_at: datetime | None = None; resolved_at: datetime | None = None; retry_count: int = Field(default=0, ge=0, le=10); max_retries: int = Field(default=3, ge=0, le=10); contact_count_24h: int = Field(default=0, ge=0); max_contacts_24h: int = Field(default=2, ge=1); risk_score: float = Field(default=0, ge=0, le=1); strategy: str = ""; bank: str | None = None; demo_scenario: str = "STANDARD"; recovered_amount: int = Field(default=0, ge=0); customer_message: str | None = None
+
 
 class CaseCreateRequest(Case): pass
 class CaseUpdateRequest(BaseModel): status: CaseStatus | None = None
@@ -31,10 +32,35 @@ class Policy(BaseModel): current: PolicyVersion
 PolicyResponse = PolicyVersion
 PolicyVersionResponse = PolicyVersion
 class PolicyUpdateRequest(BaseModel): configuration: PolicyConfiguration; created_by: str = Field(default="system", min_length=1)
+from .ai import *
+
 class PolicyValidationRequest(BaseModel): case_id: str
 class PolicyValidationResponse(BaseModel): allowed: bool; blocked_rules: list[str]; summary: str; policy_version: str
-class RecoveryDecision(BaseModel): case_id: str; strategy: Strategy; recovery_probability: float; expected_recovery: int; priority: str; explanation: str; policy_result: PolicyValidationResponse; next_step: str
+class RecoveryDecision(BaseModel):
+    case_id: str
+    strategy: Strategy
+    recovery_probability: float
+    expected_recovery: int
+    priority: str
+    explanation: str
+    policy_result: PolicyValidationResponse
+    next_step: str
+    decision_source: DecisionSource = DecisionSource.deterministic_fallback
+    diagnosis: str | None = None
+    recommended_intervention: str | None = None
+    rationale: str | None = None
+    evidence: list[EvidenceItem] = Field(default_factory=list)
+    confidence: float | None = None
+    expected_recovery_minor: int | None = None
+    alternatives: list[AlternativeIntervention] = Field(default_factory=list)
+    do_not_do: list[str] = Field(default_factory=list)
+    policy_version: str | None = None
+    recommendation_timestamp: datetime = Field(default_factory=now)
+    model_id: str | None = None
+    latency_ms: int | None = None
+
 RecoveryDecisionResponse = RecoveryDecision
+
 class RecoveryActionRequest(BaseModel): strategy: Strategy | None = None; scenario: str | None = None
 class RecoveryAction(BaseModel):
     action_id: str = Field(default_factory=lambda: ident("action"))

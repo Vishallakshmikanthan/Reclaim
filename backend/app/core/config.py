@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     razorpay_key_secret: str | None = None
     razorpay_webhook_secret: str | None = None
 
+    # NVIDIA Nemotron AI Configuration (OpenAI-compatible hosted API)
+    nvidia_api_key: str | None = None
+    nvidia_nemotron_model: str = "nvidia/llama-3.1-nemotron-70b-instruct"
+    ai_provider: str = "nemotron"  # "nemotron" | "mock" | "deterministic"
+    nvidia_api_base_url: str = "https://integrate.api.nvidia.com/v1"
+    ai_request_timeout_seconds: float = 10.0
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
     @field_validator("razorpay_key_id")
@@ -28,6 +35,16 @@ class Settings(BaseSettings):
             return clean_v
         return v
 
+    @field_validator("nvidia_api_key")
+    @classmethod
+    def validate_nvidia_api_key(cls, v: str | None) -> str | None:
+        if v:
+            clean_v = v.strip()
+            if not clean_v or clean_v.startswith("NEXT_PUBLIC_"):
+                raise ValueError("CRITICAL SECURITY ERROR: NVIDIA API key cannot be exposed via NEXT_PUBLIC_* or empty.")
+            return clean_v
+        return v
+
     @property
     def origins(self) -> list[str]:
         return [item.strip() for item in self.frontend_origin.split(",") if item.strip()]
@@ -35,4 +52,5 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
 

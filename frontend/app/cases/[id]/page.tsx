@@ -123,21 +123,53 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
             const localDecision = getCaseDecision(currentCase);
             const localStrategy = getCaseStrategy(currentCase);
 
+            const decisionSource = res.decision_source || "DETERMINISTIC_FALLBACK";
+            const sourceLabel = 
+              decisionSource === "AI_NEMOTRON" ? "AI — NVIDIA Nemotron" :
+              decisionSource === "MOCK_AI" ? "Mock AI Provider" :
+              "Deterministic fallback";
+
+            const recommendedIntervention = res.recommended_intervention 
+              ? res.recommended_intervention.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+              : localDecision.recommendedIntervention;
+
+            const confTier = (res.confidence !== undefined && res.confidence !== null)
+              ? (res.confidence >= 0.8 ? "High" : res.confidence >= 0.5 ? "Medium" : "Low")
+              : localDecision.confidence;
+
             setAiDecision({
               ...localDecision,
               caseId: res.case_id,
+              decisionSource: decisionSource,
+              sourceLabel: sourceLabel,
+              modelId: res.model_id,
+              latencyMs: res.latency_ms,
+              likelyRootCause: res.diagnosis || localDecision.likelyRootCause,
               recoveryProbability: res.recovery_probability,
               expectedRecovery: res.expected_recovery,
-              recommendedIntervention: res.strategy,
-              whyThisAction: res.explanation || localDecision.whyThisAction,
-              whyThisMatters: res.explanation || localDecision.whyThisMatters,
+              recommendedIntervention: recommendedIntervention,
+              whyThisAction: res.rationale || res.explanation || localDecision.whyThisAction,
+              whyThisMatters: res.diagnosis ? `Risk Diagnosis: ${res.diagnosis}. Grounded in telemetry and merchant policy guardrails.` : localDecision.whyThisMatters,
+              confidence: confTier,
+              confidenceScore: res.confidence !== undefined ? res.confidence : localDecision.recoveryProbability,
+              evidence: res.evidence || [],
+              doNotDo: res.do_not_do || [],
+              alternatives: (res.alternatives && res.alternatives.length > 0)
+                ? res.alternatives.map((alt: any) => ({
+                    name: alt.intervention ? alt.intervention.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "Alternative Action",
+                    description: alt.reason_not_preferred || "Secondary recovery strategy",
+                    estimatedExpectedRecovery: Math.round((currentCase.amount || 0) * (alt.estimated_confidence || 0.4)),
+                    estimatedProbability: alt.estimated_confidence || 0.4,
+                    recommended: false,
+                  }))
+                : localDecision.alternatives,
             });
 
             setStrategy({
               ...localStrategy,
               caseId: res.case_id,
               priority: (res.priority.charAt(0).toUpperCase() + res.priority.slice(1).toLowerCase()),
-              explanation: res.explanation || localStrategy.explanation,
+              explanation: res.rationale || res.explanation || localStrategy.explanation,
               primaryAction: {
                 ...localStrategy.primaryAction,
                 label: res.next_step || localStrategy.primaryAction.label,
@@ -155,6 +187,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
       }
     }
   }, [currentCase, getCaseDecision, getCaseStrategy]);
+
 
   // Loading state if no decision yet
   if (!aiDecision || !strategy) {
@@ -300,10 +333,20 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
               <BrainCircuit className="w-5 h-5" />
             </div>
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-text-muted block">
-                Autonomous Synthesis
-              </span>
-              <div className="text-base font-bold text-slate-900 dark:text-text-primary flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-text-muted block">
+                  Recovery Reasoning Layer
+                </span>
+                <span className={cn(
+                  "text-[9px] font-mono font-bold px-2 py-0.5 rounded border",
+                  aiDecision.decisionSource === "AI_NEMOTRON" && "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800",
+                  aiDecision.decisionSource === "MOCK_AI" && "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800",
+                  (!aiDecision.decisionSource || aiDecision.decisionSource === "DETERMINISTIC_FALLBACK") && "bg-slate-100 text-slate-700 border-slate-200 dark:bg-surface-elevated dark:text-text-secondary"
+                )}>
+                  {aiDecision.sourceLabel || "Deterministic fallback"}
+                </span>
+              </div>
+              <div className="text-base font-bold text-slate-900 dark:text-text-primary flex items-center gap-2 mt-0.5">
                 <span>{aiDecision.recommendedIntervention}</span>
                 <span className={cn(
                   "text-[10px] font-semibold px-2 py-0.5 rounded",
@@ -311,7 +354,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                   aiDecision.confidence === "Medium" && "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400",
                   aiDecision.confidence === "Low" && "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
                 )}>
-                  {aiDecision.confidence} Confidence
+                  {aiDecision.confidence} Confidence ({((aiDecision.confidenceScore || 0.8) * 100).toFixed(0)}%)
                 </span>
               </div>
             </div>
@@ -343,6 +386,7 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
           </div>
         </div>
       </div>
+
 
       {/* 3. Lifecycle Progress Stepper (0 to 6) */}
       <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm relative overflow-hidden">
@@ -480,9 +524,11 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
           {/* Root-Cause & Contributing Signals Deep Dive */}
           <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-border-subtle">
-              <span className="text-xs font-bold text-brand uppercase tracking-wider flex items-center gap-1.5">
-                <BrainCircuit className="w-4 h-4" /> Root-Cause Analysis & Decision Logic (Layer 2)
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-brand uppercase tracking-wider flex items-center gap-1.5">
+                  <BrainCircuit className="w-4 h-4" /> Root-Cause Analysis & Decision Intelligence (Layer 2)
+                </span>
+              </div>
               <span className={cn(
                 "text-[10px] font-bold px-2 py-0.5 rounded",
                 aiDecision.confidence === "High" && "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400",
@@ -493,21 +539,47 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
               </span>
             </div>
 
-            {/* Root Cause & Why this matters */}
+            {/* WHY THIS CASE IS AT RISK */}
             <div className="space-y-2">
               <div>
-                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
-                  Likely Root Cause
+                <span className="text-[11px] font-bold text-slate-700 dark:text-text-secondary uppercase tracking-wider block">
+                  Why This Case Is At Risk (Diagnosis)
                 </span>
-                <p className="text-xs font-semibold text-slate-900 dark:text-text-primary mt-0.5">
+                <p className="text-xs font-semibold text-slate-900 dark:text-text-primary mt-1">
                   {aiDecision.likelyRootCause}
                 </p>
               </div>
               <div className="p-3 bg-slate-50 dark:bg-surface-elevated/50 rounded-lg border border-slate-100 dark:border-border-subtle text-xs text-slate-700 dark:text-text-secondary leading-relaxed">
-                <strong className="font-semibold text-slate-900 dark:text-text-primary">Why this matters: </strong>
+                <strong className="font-semibold text-slate-900 dark:text-text-primary">Operational Context: </strong>
                 {aiDecision.whyThisMatters}
               </div>
             </div>
+
+            {/* Grounded Evidence Items (if provided by AI / Fallback) */}
+            {aiDecision.evidence && aiDecision.evidence.length > 0 && (
+              <div className="pt-2 border-t border-slate-100 dark:border-border-subtle">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-text-secondary uppercase tracking-wider block mb-2">
+                  Grounded Evidence Signals
+                </span>
+                <div className="space-y-1.5 text-xs">
+                  {aiDecision.evidence.map((ev: any, idx: number) => (
+                    <div key={idx} className="p-2.5 rounded-lg bg-slate-50/70 dark:bg-surface-elevated/50 border border-slate-100 dark:border-border-subtle flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="font-mono font-bold text-[10px] text-brand bg-brand/10 px-1.5 py-0.5 rounded">
+                          {ev.field}
+                        </span>
+                        <span className="font-semibold text-slate-900 dark:text-text-primary text-[11px]">
+                          = {String(ev.value)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-text-secondary leading-snug">
+                        {ev.reason}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Contributing Drivers Grid */}
             <div className="pt-2 border-t border-slate-100 dark:border-border-subtle">
@@ -559,7 +631,22 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                 {aiDecision.whyThisAction}
               </p>
             </div>
+
+            {/* DO NOT DO Operational Guardrails */}
+            {aiDecision.doNotDo && aiDecision.doNotDo.length > 0 && (
+              <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/40 space-y-1.5 text-xs">
+                <span className="font-bold text-amber-800 dark:text-amber-300 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-600" /> Bounded Operational Guardrails (Do Not Do)
+                </span>
+                <ul className="space-y-1 pl-4 list-disc text-slate-700 dark:text-text-secondary text-[11px]">
+                  {aiDecision.doNotDo.map((item: string, i: number) => (
+                    <li key={i}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
+
 
           {/* Alternative Interventions (Ranked) */}
           <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm space-y-3">

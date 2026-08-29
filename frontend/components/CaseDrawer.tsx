@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { formatCurrency, cn } from "@/lib/utils";
 import { Drawer } from "@/components/ui/Drawer";
@@ -10,10 +10,12 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { useReclaim } from "@/lib/context/ReclaimContext";
+import { apiClient } from "@/lib/api/client";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
 import { ExecutionTimeline } from "@/components/ui/ExecutionTimeline";
 import { RecoveryStrategyTimeline } from "@/components/ui/RecoveryStrategyTimeline";
 import { Case } from "@/lib/types";
+
 import { 
   Play, 
   RotateCcw, 
@@ -57,17 +59,80 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
 
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
-  if (!initialCase) return null;
-
   // Retrieve current live case from context
-  const currentCase = getCaseById(initialCase.id) || initialCase;
-  const executionState = getCaseExecutionState(currentCase.id);
+  const currentCase = initialCase ? (getCaseById(initialCase.id) || initialCase) : null;
+  const executionState = currentCase ? getCaseExecutionState(currentCase.id) : "idle";
 
   // Synthesize dynamic AI recommendation, risk signals, intelligent strategy, and deterministic policies
-  const aiDecision = getCaseDecision(currentCase);
+  const localDecision = currentCase ? getCaseDecision(currentCase) : null;
+  const [decisionData, setDecisionData] = useState<any>(localDecision);
+
+  useEffect(() => {
+    if (currentCase && isOpen) {
+      if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
+        setDecisionData(getCaseDecision(currentCase));
+      } else {
+        const fetchDecision = async () => {
+          try {
+            const res = await apiClient.post<any>(`/api/v1/cases/${currentCase.id}/recovery/decision`);
+            const locDec = getCaseDecision(currentCase);
+            const decisionSource = res.decision_source || "DETERMINISTIC_FALLBACK";
+            const sourceLabel = 
+              decisionSource === "AI_NEMOTRON" ? "AI — NVIDIA Nemotron" :
+              decisionSource === "MOCK_AI" ? "Mock AI Provider" :
+              "Deterministic fallback";
+
+            const recommendedIntervention = res.recommended_intervention 
+              ? res.recommended_intervention.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+              : locDec.recommendedIntervention;
+
+            const confTier = (res.confidence !== undefined && res.confidence !== null)
+              ? (res.confidence >= 0.8 ? "High" : res.confidence >= 0.5 ? "Medium" : "Low")
+              : locDec.confidence;
+
+            setDecisionData({
+              ...locDec,
+              caseId: res.case_id,
+              decisionSource,
+              sourceLabel,
+              modelId: res.model_id,
+              latencyMs: res.latency_ms,
+              likelyRootCause: res.diagnosis || locDec.likelyRootCause,
+              recoveryProbability: res.recovery_probability,
+              expectedRecovery: res.expected_recovery,
+              recommendedIntervention,
+              whyThisAction: res.rationale || res.explanation || locDec.whyThisAction,
+              whyThisMatters: res.diagnosis ? `Risk Diagnosis: ${res.diagnosis}. Grounded in telemetry and merchant policy guardrails.` : locDec.whyThisMatters,
+              confidence: confTier,
+              confidenceScore: res.confidence !== undefined ? res.confidence : locDec.recoveryProbability,
+              evidence: res.evidence || [],
+              doNotDo: res.do_not_do || [],
+              alternatives: (res.alternatives && res.alternatives.length > 0)
+                ? res.alternatives.map((alt: any) => ({
+                    name: alt.intervention ? alt.intervention.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "Alternative Action",
+                    description: alt.reason_not_preferred || "Secondary recovery strategy",
+                    estimatedExpectedRecovery: Math.round((currentCase.amount || 0) * (alt.estimated_confidence || 0.4)),
+                    estimatedProbability: alt.estimated_confidence || 0.4,
+                    recommended: false,
+                  }))
+                : locDec.alternatives,
+            });
+          } catch {
+            setDecisionData(getCaseDecision(currentCase));
+          }
+        };
+        fetchDecision();
+      }
+    }
+  }, [currentCase, isOpen, getCaseDecision]);
+
+  if (!initialCase || !currentCase) return null;
+
+  const aiDecision = decisionData || getCaseDecision(currentCase);
   const strategy = getCaseStrategy(currentCase);
   const policyResult = getCasePolicy(currentCase);
   const signals = extractRiskSignals(currentCase);
+
 
   const handleStartExecute = () => {
     if (!policyResult.allowed) {
@@ -206,21 +271,21 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
                 <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1">
                   <PlusCircle className="w-3 h-3" /> Positive Drivers
                 </span>
-                {aiDecision.contributingSignals.positive.map((pos, i) => (
+                {aiDecision.contributingSignals?.positive?.map((pos: any, i: number) => (
                   <div key={i} className="text-slate-600 dark:text-text-secondary text-[11px] flex items-start gap-1">
                     <span className="text-emerald-500 font-bold">+</span>
                     <span>{pos}</span>
                   </div>
-                ))}
+                )) || <div className="text-slate-400 text-[11px]">None identified</div>}
               </div>
               <div className="space-y-1">
                 <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1">
                   <MinusCircle className="w-3 h-3" /> Negative Factors
                 </span>
-                {aiDecision.contributingSignals.negative.length === 0 ? (
+                {(!aiDecision.contributingSignals?.negative || aiDecision.contributingSignals.negative.length === 0) ? (
                   <div className="text-slate-400 text-[11px]">None identified</div>
                 ) : (
-                  aiDecision.contributingSignals.negative.map((neg, i) => (
+                  aiDecision.contributingSignals.negative.map((neg: any, i: number) => (
                     <div key={i} className="text-slate-600 dark:text-text-secondary text-[11px] flex items-start gap-1">
                       <span className="text-rose-500 font-bold">−</span>
                       <span>{neg}</span>
@@ -228,15 +293,26 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
                   ))
                 )}
               </div>
+
             </div>
           </div>
 
           {/* 5. Root-Cause Analysis & "Why This Action?" (Layer 2) */}
           <div className="p-4 rounded-xl border border-slate-200/80 dark:border-border-subtle bg-white dark:bg-surface space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-brand uppercase tracking-wider flex items-center gap-1.5">
-                <BrainCircuit className="w-3.5 h-3.5" /> AI Decision Intelligence (Layer 2)
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-brand uppercase tracking-wider flex items-center gap-1.5">
+                  <BrainCircuit className="w-3.5 h-3.5" /> AI Decision Intelligence (Layer 2)
+                </span>
+                <span className={cn(
+                  "text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border",
+                  aiDecision.decisionSource === "AI_NEMOTRON" && "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300",
+                  aiDecision.decisionSource === "MOCK_AI" && "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300",
+                  (!aiDecision.decisionSource || aiDecision.decisionSource === "DETERMINISTIC_FALLBACK") && "bg-slate-100 text-slate-700 border-slate-200 dark:bg-surface-elevated dark:text-text-secondary"
+                )}>
+                  {aiDecision.sourceLabel || "Deterministic fallback"}
+                </span>
+              </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-slate-400">Confidence:</span>
                 <span className={cn(
@@ -252,17 +328,34 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
 
             {/* Root Cause Diagnosis */}
             <div className="space-y-1">
-              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
-                Likely Root Cause
+              <span className="text-[11px] font-bold text-slate-700 dark:text-text-secondary uppercase tracking-wider block">
+                Why This Case Is At Risk (Diagnosis)
               </span>
-              <p className="text-xs font-medium text-slate-900 dark:text-text-primary">
+              <p className="text-xs font-semibold text-slate-900 dark:text-text-primary">
                 {aiDecision.likelyRootCause}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-text-secondary leading-relaxed bg-slate-50 dark:bg-surface-elevated/40 p-2.5 rounded border border-slate-100 dark:border-border-subtle">
-                <strong className="text-slate-800 dark:text-text-primary font-semibold">Why this matters: </strong>
+                <strong className="text-slate-800 dark:text-text-primary font-semibold">Operational Context: </strong>
                 {aiDecision.whyThisMatters}
               </p>
             </div>
+
+            {/* Grounded Evidence List */}
+            {aiDecision.evidence && aiDecision.evidence.length > 0 && (
+              <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-border-subtle">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Grounded Evidence Signals
+                </span>
+                <div className="space-y-1 text-xs">
+                  {aiDecision.evidence.map((ev: any, i: number) => (
+                    <div key={i} className="p-2 rounded bg-slate-50 dark:bg-surface-elevated/50 border border-slate-100 dark:border-border-subtle flex items-baseline justify-between gap-1 text-[11px]">
+                      <span className="font-mono font-bold text-[10px] text-brand">[{ev.field}]</span>
+                      <span className="text-slate-600 dark:text-text-secondary truncate">{ev.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Recommendation & Rationale */}
             <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-border-subtle">
@@ -279,7 +372,22 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
                 {aiDecision.whyThisAction}
               </p>
             </div>
+
+            {/* Do Not Do Guardrails */}
+            {aiDecision.doNotDo && aiDecision.doNotDo.length > 0 && (
+              <div className="p-2.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-[11px] space-y-1">
+                <span className="font-bold text-amber-800 dark:text-amber-300 uppercase text-[10px] flex items-center gap-1">
+                  <ShieldAlert className="w-3 h-3 text-amber-600" /> Bounded Operational Guardrails
+                </span>
+                <ul className="pl-3 list-disc text-slate-700 dark:text-text-secondary space-y-0.5">
+                  {aiDecision.doNotDo.map((rule: string, i: number) => (
+                    <li key={i}>{rule}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
+
 
           {/* 6. Alternative Interventions with Estimated Expected Value */}
           <div className="p-3.5 rounded-xl border border-slate-200/80 dark:border-border-subtle bg-white dark:bg-surface space-y-2">
@@ -290,7 +398,7 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
               <span className="text-[10px] font-mono text-slate-400">Demo Estimates</span>
             </div>
             <div className="space-y-1.5 text-xs">
-              {aiDecision.alternatives.map((alt, i) => (
+              {aiDecision.alternatives?.map((alt: any, i: number) => (
                 <div 
                   key={i} 
                   className={cn(
@@ -322,6 +430,7 @@ export function CaseDrawer({ isOpen, onClose, caseItem: initialCase }: CaseDrawe
                 </div>
               ))}
             </div>
+
           </div>
 
           {/* Intelligent Recovery Strategy & Multi-Step Fallback Chain */}

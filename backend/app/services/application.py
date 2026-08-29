@@ -26,7 +26,12 @@ class Services:
         MetricsEngine(),
     )
 
-    def __init__(self, repo, provider: RecoveryProvider | None = None):
+    def __init__(
+        self,
+        repo,
+        provider: RecoveryProvider | None = None,
+        ai_provider: AIRecoveryProvider | None = None,
+    ):
         self.repo = repo
         self.failures = {}
         self.settings = get_settings()
@@ -43,6 +48,20 @@ class Services:
                 self.provider = MockRazorpayTestProvider()
         else:
             self.provider = SimulatedRecoveryProvider()
+
+        if ai_provider is not None:
+            self.ai_provider = ai_provider
+        elif self.settings.ai_provider == "mock":
+            self.ai_provider = MockAIRecoveryProvider()
+        elif self.settings.ai_provider == "nemotron" and self.settings.nvidia_api_key:
+            self.ai_provider = NemotronRecoveryProvider(
+                api_key=self.settings.nvidia_api_key,
+                model=self.settings.nvidia_nemotron_model,
+                base_url=self.settings.nvidia_api_base_url,
+                timeout_seconds=self.settings.ai_request_timeout_seconds,
+            )
+        else:
+            self.ai_provider = None
 
     def audit(self, event_type: str, **kwargs) -> AuditEvent:
         return self.repo.audit(AuditEvent(event_type=event_type, **kwargs))
@@ -72,7 +91,104 @@ class Services:
         return result
 
     def decision(self, case_id: str) -> RecoveryDecision:
-        return self.decision_engine.decide(self.case(case_id), self.validate(case_id))
+        import time
+        case = self.case(case_id)
+        policy_val = self.validate(case_id)
+        active_policy = self.policy()
+
+        if self.ai_provider:
+            start_time = time.perf_counter()
+            ai_telemetry.record_invocation()
+            try:
+                sanitized_ctx = ContextSanitizer.sanitize(case, active_policy)
+                ai_rec = self.ai_provider.generate_recommendation(
+                    sanitized_ctx, scenario=case.demo_scenario
+                )
+                latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+                # Strategy mapping
+                interv = ai_rec.recommended_intervention
+                if interv in {InterventionEnum.RETRY_PAYMENT, InterventionEnum.WAIT_AND_RETRY}:
+                    strat = Strategy.retry_payment
+                elif interv == InterventionEnum.CUSTOMER_REMINDER:
+                    strat = Strategy.customer_reminder
+                elif interv == InterventionEnum.ALTERNATIVE_PAYMENT_METHOD:
+                    strat = Strategy.payment_link
+                elif interv == InterventionEnum.MANUAL_REVIEW:
+                    strat = Strategy.human_escalation
+                elif interv == InterventionEnum.NO_ACTION:
+                    strat = Strategy.no_action
+                else:
+                    strat = Strategy.retry_payment
+
+                exp_rec = min(ai_rec.expected_recovery_minor, case.amount)
+                priority = "Critical" if case.amount > 500000 or ai_rec.confidence > 0.8 else "High" if ai_rec.confidence > 0.5 else "Medium"
+                
+                decision_src = (
+                    DecisionSource.ai_nemotron
+                    if isinstance(self.ai_provider, NemotronRecoveryProvider)
+                    else DecisionSource.mock_ai
+                )
+                model_name = getattr(self.ai_provider, "model", getattr(self.ai_provider, "model_id", "nemotron"))
+
+                ai_telemetry.record_success(latency_ms)
+                if not policy_val.allowed and strat not in {Strategy.no_action, Strategy.human_escalation}:
+                    ai_telemetry.record_policy_override()
+
+                self.audit(
+                    "AI_RECOMMENDATION_GENERATED",
+                    case_id=case.id,
+                    policy_version=policy_val.policy_version,
+                    metadata={
+                        "decision_source": decision_src.value,
+                        "model": model_name,
+                        "confidence": ai_rec.confidence,
+                        "recommended_intervention": interv.value,
+                        "policy_allowed": policy_val.allowed,
+                        "latency_ms": latency_ms,
+                    },
+                )
+
+                return RecoveryDecision(
+                    case_id=case.id,
+                    strategy=strat,
+                    recovery_probability=ai_rec.confidence,
+                    expected_recovery=exp_rec,
+                    priority=priority,
+                    explanation=ai_rec.rationale,
+                    policy_result=policy_val,
+                    next_step="Execute approved recovery action." if (policy_val.allowed and strat != Strategy.no_action) else "Route to human review.",
+                    decision_source=decision_src,
+                    diagnosis=ai_rec.diagnosis,
+                    recommended_intervention=interv.value,
+                    rationale=ai_rec.rationale,
+                    evidence=ai_rec.evidence,
+                    confidence=ai_rec.confidence,
+                    expected_recovery_minor=exp_rec,
+                    alternatives=ai_rec.alternatives,
+                    do_not_do=ai_rec.do_not_do,
+                    policy_version=policy_val.policy_version,
+                    model_id=model_name,
+                    latency_ms=latency_ms,
+                )
+            except Exception as e:
+                reason = "timeout" if isinstance(e, AITimeoutError) else "validation_failure" if isinstance(e, AIValidationFailure) else "general"
+                ai_telemetry.record_fallback(reason)
+                self.audit(
+                    "AI_FALLBACK_TRIGGERED",
+                    case_id=case.id,
+                    policy_version=policy_val.policy_version,
+                    metadata={"error_type": type(e).__name__, "decision_source": DecisionSource.deterministic_fallback.value},
+                )
+                fallback = self.decision_engine.decide(case, policy_val)
+                fallback.decision_source = DecisionSource.deterministic_fallback
+                return fallback
+
+        # Default when no AI provider is configured or key is absent
+        fallback = self.decision_engine.decide(case, policy_val)
+        fallback.decision_source = DecisionSource.deterministic_fallback
+        return fallback
+
 
     def action(self, case_id: str, request: RecoveryActionRequest, key: str) -> RecoveryAction:
         if not key:
