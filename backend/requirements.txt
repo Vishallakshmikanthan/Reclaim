@@ -1,0 +1,16 @@
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+langgraph==0.2.60
+langchain-google-genai==2.0.8
+google-generativeai==0.8.3
+razorpay==1.4.2
+pandas==2.2.3
+scikit-learn==1.6.0
+psycopg2-binary==2.9.10
+sqlalchemy==2.0.36
+python-dotenv==1.0.1
+requests==2.32.3
+httpx==0.28.1
+pytest==8.3.4

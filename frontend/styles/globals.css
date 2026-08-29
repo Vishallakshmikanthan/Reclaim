@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light mode brand colours */
+    --brand-primary: #6366F1;
+    --brand-hover: #4F46E5;
+    --brand-muted: rgba(99, 102, 241, 0.15);
+
+    /* Light mode semantic colours (original) */
+    --status-recovered: #10B981;
+    --status-recovered-soft: #ecfdf5; /* emerald-50 */
+    --status-at-risk: #EF4444;
+    --status-at-risk-soft: #fff1f2; /* rose-50 */
+    --status-in-progress: #F59E0B;
+    --status-in-progress-soft: #fffbeb; /* amber-50 */
+    --status-escalated: #6366F1; /* Changed to match primary/brand in light mode */
+    --status-escalated-soft: #f1f5f9; /* slate-100 */
+    --status-stopped: #64748B;
+    --status-stopped-soft: #f1f5f9; /* slate-100 */
+
+    /* Light mode backgrounds/borders for charts & tooltips */
+    --bg-surface-elevated: #ffffff;
+    --border-subtle: #e2e8f0;
+    --text-primary: #0f172a;
+    --text-muted: #64748B;
+  }
+
+  .dark {
+    /* BACKGROUND & SURFACES */
+    --bg-canvas: #0B1020;
+    --bg-canvas-subtle: #0B1020;
+    --bg-surface: #111827;
+    --bg-surface-elevated: #1A2336;
+    --bg-surface-highlight: #151D2E;
+
+    /* BORDERS */
+    --border-subtle: #263244;
+    --border-focus: #818CF8;
+
+    /* TEXT */
+    --text-primary: #F8FAFC;
+    --text-secondary: #CBD5E1;
+    --text-muted: #94A3B8;
+
+    /* BRAND / ACCENT */
+    --brand-primary: #818CF8;
+    --brand-hover: #A5B4FC;
+    --brand-muted: #1E1B4B;
+
+    /* SEMANTIC COLOURS */
+    --status-recovered: #34D399;
+    --status-recovered-soft: #064E3B;
+    --status-at-risk: #FB7185;
+    --status-at-risk-soft: #4C0519;
+    --status-in-progress: #FBBF24;
+    --status-in-progress-soft: #451A03;
+    --status-escalated: #A5B4FC;
+    --status-escalated-soft: #1E1B4B;
+    --status-stopped: #64748B;
+    --status-stopped-soft: #1A2336;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Tabular numbers for financial metrics alignment */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+}
