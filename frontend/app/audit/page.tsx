@@ -4,6 +4,8 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { Search, Filter, Download, ArrowUpDown, ShieldCheck, Clock, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 const AUDIT_EVENTS = [
   { id: "EV-99234", timestamp: "Oct 24, 14:32:05.120", layer: "LAYER 5", event: "CASE_RESOLVED", case: "RC-2024-081", desc: "₹8,499 recovered successfully via Razorpay test retry transaction.", latency: "12ms" },
@@ -18,6 +20,7 @@ const AUDIT_EVENTS = [
 ];
 
 export default function AuditTrailPage() {
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [layerFilter, setLayerFilter] = useState("ALL");
 
@@ -31,6 +34,14 @@ export default function AuditTrailPage() {
     const matchesLayer = layerFilter === "ALL" || e.layer === layerFilter;
     return matchesSearch && matchesLayer;
   });
+
+  const handleExportCSV = () => {
+    toast({
+      title: "Audit Export Initiated",
+      description: "Generating cryptographic audit ledger CSV (Layer 0–5)...",
+      type: "info"
+    });
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300 pb-16">
@@ -51,11 +62,15 @@ export default function AuditTrailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2.5">
-          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm">
+          <button 
+            onClick={handleExportCSV}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm active:scale-[0.98]"
+          >
             <Download className="w-3.5 h-3.5" /> Export Audit CSV
           </button>
         </div>
       </div>
+
 
       {/* 2. Main Ledger Container */}
       <div className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[580px]">
@@ -94,64 +109,81 @@ export default function AuditTrailPage() {
           </div>
         </div>
 
-        {/* Ledger Table */}
-        <div className="flex-1 overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
-                <th className="py-3 px-4 sm:px-6">Timestamp (IST)</th>
-                <th className="py-3 px-4">Layer</th>
-                <th className="py-3 px-4">Event Type</th>
-                <th className="py-3 px-4">Case ID</th>
-                <th className="py-3 px-4">Execution Summary & Payload</th>
-                <th className="py-3 px-4 sm:px-6 text-right">Latency</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
-              {filteredEvents.map((row) => (
-                <tr 
-                  key={row.id} 
-                  className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors group"
-                >
-                  <td className="py-3.5 px-4 sm:px-6 font-mono text-slate-500 dark:text-text-muted whitespace-nowrap text-[11px]">
-                    {row.timestamp}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className="font-mono text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-surface-elevated text-slate-600 dark:text-text-secondary border border-slate-200 dark:border-border-subtle">
-                      {row.layer}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 font-mono font-semibold">
-                    <span className={cn(
-                      "px-2 py-0.5 rounded text-[11px]",
-                      row.event.includes("APPROVED") || row.event.includes("SUCCEEDED") || row.event.includes("RESOLVED") 
-                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" 
-                        : row.event.includes("BLOCKED") || row.event.includes("FAILED") 
-                        ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400" 
-                        : row.event.includes("ESCALATED") 
-                        ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" 
-                        : "bg-indigo-50 text-indigo-700 dark:bg-brand-muted dark:text-brand"
-                    )}>
-                      {row.event}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 font-mono font-medium text-brand hover:underline">
-                    <Link href={`/cases/${row.case}`} className="flex items-center gap-1">
-                      {row.case}
-                      <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </Link>
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-700 dark:text-text-secondary max-w-lg leading-relaxed">
-                    {row.desc}
-                  </td>
-                  <td className="py-3.5 px-4 sm:px-6 text-right font-mono text-[11px] text-slate-400 dark:text-text-muted whitespace-nowrap">
-                    {row.latency}
-                  </td>
+        {/* Ledger Table or Empty State */}
+        {filteredEvents.length === 0 ? (
+          <div className="p-8 flex-1 flex items-center justify-center">
+            <EmptyState
+              title="No audit events found"
+              description="Try modifying your search term or switching to 'All Layers (0–5)'."
+              action={{
+                label: "Reset Audit Filters",
+                onClick: () => {
+                  setSearchTerm("");
+                  setLayerFilter("ALL");
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
+                  <th className="py-3 px-4 sm:px-6">Timestamp (IST)</th>
+                  <th className="py-3 px-4">Layer</th>
+                  <th className="py-3 px-4">Event Type</th>
+                  <th className="py-3 px-4">Case ID</th>
+                  <th className="py-3 px-4">Execution Summary & Payload</th>
+                  <th className="py-3 px-4 sm:px-6 text-right">Latency</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
+                {filteredEvents.map((row) => (
+                  <tr 
+                    key={row.id} 
+                    className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors group"
+                  >
+                    <td className="py-3.5 px-4 sm:px-6 font-mono text-slate-500 dark:text-text-muted whitespace-nowrap text-[11px]">
+                      {row.timestamp}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="font-mono text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-surface-elevated text-slate-600 dark:text-text-secondary border border-slate-200 dark:border-border-subtle">
+                        {row.layer}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 font-mono font-semibold">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded text-[11px]",
+                        row.event.includes("APPROVED") || row.event.includes("SUCCEEDED") || row.event.includes("RESOLVED") 
+                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" 
+                          : row.event.includes("BLOCKED") || row.event.includes("FAILED") 
+                          ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400" 
+                          : row.event.includes("ESCALATED") 
+                          ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" 
+                          : "bg-indigo-50 text-indigo-700 dark:bg-brand-muted dark:text-brand"
+                      )}>
+                        {row.event}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 font-mono font-medium text-brand hover:underline">
+                      <Link href={`/cases/${row.case}`} className="flex items-center gap-1">
+                        {row.case}
+                        <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </Link>
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-700 dark:text-text-secondary max-w-lg leading-relaxed">
+                      {row.desc}
+                    </td>
+                    <td className="py-3.5 px-4 sm:px-6 text-right font-mono text-[11px] text-slate-400 dark:text-text-muted whitespace-nowrap">
+                      {row.latency}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
 
         {/* Footer */}
         <div className="p-3 border-t border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface text-xs text-slate-500 dark:text-text-muted flex items-center justify-between px-4 sm:px-6">

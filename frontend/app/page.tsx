@@ -59,6 +59,7 @@ export default function CommandCenter() {
             valueClassName="text-status-atRisk"
             subtitle="Detected in the last 24h across 225 cases"
             badge="Live Stream"
+            tooltip="Total volume of failed transactions ingested in the last 24h eligible for recovery"
           />
           <MetricCard
             title="Money Recovered"
@@ -68,6 +69,7 @@ export default function CommandCenter() {
             valueClassName="text-status-recovered"
             subtitle="Captured via autonomous actions"
             badge="Razorpay"
+            tooltip="Gross transaction volume captured through autonomous retry and multi-channel links"
           />
           <MetricCard
             title="Recovery Rate"
@@ -76,12 +78,14 @@ export default function CommandCenter() {
             trendUp={true}
             subtitle="Across all recoverable payment types"
             badge="High Precision"
+            tooltip="Percentage of recoverable failed transactions successfully captured"
           />
           <MetricCard
             title="Cases Resolved"
             value="152 / 225"
             subtitle="68% completed without escalation"
             badge="Automated"
+            tooltip="Proportion of cases brought to resolution without manual operations desk escalation"
           />
         </div>
       </section>

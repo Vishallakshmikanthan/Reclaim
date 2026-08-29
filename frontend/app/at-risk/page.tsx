@@ -11,20 +11,27 @@ import {
   AlertTriangle,
   Download,
   RefreshCw,
-  Clock
+  Clock,
+  X,
+  Sliders,
+  Info
 } from "lucide-react";
 import { ProbabilityMeter } from "@/components/ui/ProbabilityMeter";
-import { StatusBadge } from "@/components/ui/StatusBadge";
+import { StatusBadge, StatusType } from "@/components/ui/StatusBadge";
+import { CaseDrawer } from "@/components/CaseDrawer";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { useToast } from "@/components/ui/Toast";
 import { formatCurrency } from "@/lib/utils";
 
 const CASES = [
-  { id: "RC-2024-001", customer: "Priya S.", failure: "UPI Timeout", amount: 849900, prob: 0.81, expected: 688400, status: "inProgress", age: "12m", action: "Execute Retry" },
-  { id: "RC-2024-002", customer: "Rahul M.", failure: "Card Decline", amount: 1250000, prob: 0.35, expected: 437500, status: "escalated", age: "25m", action: "Review Plan" },
-  { id: "RC-2024-003", customer: "Anita K.", failure: "Insufficient Funds", amount: 450000, prob: 0.45, expected: 202500, status: "atRisk", age: "1h", action: "Send Nudge" },
-  { id: "RC-2024-004", customer: "Vikram B.", failure: "Checkout Abandonment", amount: 1899900, prob: 0.30, expected: 569900, status: "recovered", age: "2h", action: "View Case" },
-  { id: "RC-2024-005", customer: "Neha T.", failure: "Bank Downtime", amount: 350000, prob: 0.80, expected: 280000, status: "recovered", age: "3h", action: "View Case" },
-  { id: "RC-2024-006", customer: "Arjun D.", failure: "Fraud Signal", amount: 5500000, prob: 0.02, expected: 110000, status: "stopped", age: "4h", action: "Policy Audit" },
-  { id: "RC-2024-007", customer: "Sanjay R.", failure: "UPI Timeout", amount: 120000, prob: 0.75, expected: 90000, status: "inProgress", age: "4h", action: "Execute Retry" },
+  { id: "RC-2024-001", customer: "Priya S.", failure: "UPI Timeout", amount: 849900, prob: 0.81, expected: 688400, status: "inProgress" as StatusType, age: "12m", action: "Review & Execute", paymentId: "pay_P4qX92vLmK0", strategy: "Razorpay Retry" },
+  { id: "RC-2024-002", customer: "Rahul M.", failure: "Card Decline", amount: 1250000, prob: 0.35, expected: 437500, status: "escalated" as StatusType, age: "25m", action: "Review Plan", paymentId: "pay_R8kL92vNmQ1", strategy: "WhatsApp Link" },
+  { id: "RC-2024-003", customer: "Anita K.", failure: "Insufficient Funds", amount: 450000, prob: 0.45, expected: 202500, status: "atRisk" as StatusType, age: "1h", action: "Send Nudge", paymentId: "pay_A2kL01vXmP4", strategy: "SMS Nudge" },
+  { id: "RC-2024-004", customer: "Vikram B.", failure: "Checkout Abandonment", amount: 1899900, prob: 0.30, expected: 569900, status: "recovered" as StatusType, age: "2h", action: "View Case", paymentId: "pay_V7bL91qXmZ8", strategy: "Dynamic Link" },
+  { id: "RC-2024-005", customer: "Neha T.", failure: "Bank Downtime", amount: 350000, prob: 0.80, expected: 280000, status: "recovered" as StatusType, age: "3h", action: "View Case", paymentId: "pay_N9kL82vQmP9", strategy: "Delayed Retry" },
+  { id: "RC-2024-006", customer: "Arjun D.", failure: "Fraud Signal", amount: 5500000, prob: 0.02, expected: 110000, status: "stopped" as StatusType, age: "4h", action: "Policy Audit", paymentId: "pay_A1dL44vKmR0", strategy: "Manual Audit" },
+  { id: "RC-2024-007", customer: "Sanjay R.", failure: "UPI Timeout", amount: 120000, prob: 0.75, expected: 90000, status: "inProgress" as StatusType, age: "4h", action: "Review & Execute", paymentId: "pay_S3rL19vJmK2", strategy: "Razorpay Retry" },
 ];
 
 const TABS = [
@@ -39,14 +46,44 @@ const TABS = [
 
 export default function AtRiskPage() {
   const router = useRouter();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("All Cases");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCase, setSelectedCase] = useState<typeof CASES[0] | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  const filteredCases = CASES.filter((c) => 
-    c.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.failure.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredCases = CASES.filter((c) => {
+    const matchesSearch = 
+      c.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.failure.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    if (!matchesSearch) return false;
+
+    if (activeTab === "High Priority") return c.prob >= 0.7;
+    if (activeTab === "Recovery Ready") return c.status === "inProgress";
+    if (activeTab === "Human Review") return c.status === "atRisk";
+    if (activeTab === "Escalated") return c.status === "escalated";
+    if (activeTab === "Stopped") return c.status === "stopped";
+    if (activeTab === "Recovered") return c.status === "recovered";
+
+    return true;
+  });
+
+  const handleRowClick = (caseItem: typeof CASES[0]) => {
+    setSelectedCase(caseItem);
+    setIsDrawerOpen(true);
+  };
+
+  const handleClearFilters = () => {
+    setSearchTerm("");
+    setActiveTab("All Cases");
+    toast({
+      title: "Filters Cleared",
+      description: "Showing all active cases in the workspace.",
+      type: "info"
+    });
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -68,13 +105,20 @@ export default function AtRiskPage() {
         </div>
         <div className="flex items-center gap-2.5">
           <button 
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              toast({ title: "Cases Refreshed", description: "Updated case feed from live gateway events.", type: "success" });
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
           </button>
-          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm">
+          <button 
+            onClick={() => {
+              toast({ title: "Export Initiated", description: "Downloading active case ledger (CSV)...", type: "info" });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm"
+          >
             <Download className="w-3.5 h-3.5" />
             Export
           </button>
@@ -94,16 +138,29 @@ export default function AtRiskPage() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Filter by Case ID, Customer, or Failure reason..." 
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-white dark:bg-canvas border border-slate-200 dark:border-border-subtle rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-900 dark:text-text-primary placeholder:text-slate-400 transition-colors shadow-sm"
+                className="w-full pl-9 pr-8 py-1.5 text-xs bg-white dark:bg-canvas border border-slate-200 dark:border-border-subtle rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-900 dark:text-text-primary placeholder:text-slate-400 transition-colors shadow-sm"
               />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-text-secondary bg-white dark:bg-surface border border-slate-200 dark:border-border-subtle rounded-lg hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors shadow-sm whitespace-nowrap">
-              <Filter className="w-3.5 h-3.5 text-slate-500" /> Filters
-            </button>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-auto text-xs text-slate-500 dark:text-text-muted">
-            <span>Showing <strong>{filteredCases.length}</strong> of <strong>225</strong> cases</span>
+          <div className="flex items-center gap-3 self-end sm:self-auto text-xs text-slate-500 dark:text-text-muted">
+            {(searchTerm || activeTab !== "All Cases") && (
+              <button
+                onClick={handleClearFilters}
+                className="text-xs font-semibold text-brand hover:underline flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" /> Clear filters
+              </button>
+            )}
+            <span>Showing <strong>{filteredCases.length}</strong> cases</span>
           </div>
         </div>
 
@@ -134,84 +191,89 @@ export default function AtRiskPage() {
           })}
         </div>
 
-        {/* Operational Case Table */}
-        <div className="flex-1 overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
-                <th className="py-3 px-4 sm:px-6">
-                  <div className="flex items-center gap-1 cursor-pointer hover:text-slate-800 dark:hover:text-text-primary">
-                    Case ID <ArrowUpDown className="w-3 h-3"/>
-                  </div>
-                </th>
-                <th className="py-3 px-4">Customer</th>
-                <th className="py-3 px-4">Failure Reason</th>
-                <th className="py-3 px-4 text-right">
-                  <div className="flex items-center justify-end gap-1 cursor-pointer hover:text-slate-800 dark:hover:text-text-primary">
-                    Amount <ArrowUpDown className="w-3 h-3"/>
-                  </div>
-                </th>
-                <th className="py-3 px-4">Recovery Prob</th>
-                <th className="py-3 px-4 text-right">Expected Value</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Age</th>
-                <th className="py-3 px-4 sm:px-6 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
-              {filteredCases.map((row) => (
-                <tr 
-                  key={row.id} 
-                  onClick={() => router.push(`/cases/${row.id}`)}
-                  className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors cursor-pointer group"
-                >
-                  <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-slate-900 dark:text-text-primary group-hover:text-brand transition-colors">
-                    {row.id}
-                  </td>
-                  <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-text-primary">
-                    {row.customer}
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600 dark:text-text-secondary">
-                    {row.failure}
-                  </td>
-                  <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-text-primary tabular-nums text-right">
-                    {formatCurrency(row.amount)}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <ProbabilityMeter probability={row.prob} />
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600 dark:text-text-muted tabular-nums font-mono text-right">
-                    {formatCurrency(row.expected)}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <StatusBadge status={row.status as any} size="sm" />
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-400 dark:text-text-muted whitespace-nowrap">
-                    {row.age}
-                  </td>
-                  <td className="py-3.5 px-4 sm:px-6 text-right">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push(`/cases/${row.id}`);
-                      }}
-                      className="inline-flex items-center gap-1 font-semibold text-brand hover:text-brand-hover text-xs group-hover:underline"
-                    >
-                      {row.action}
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
-                  </td>
+        {/* Operational Case Table or Empty State */}
+        {filteredCases.length === 0 ? (
+          <div className="p-8 flex-1 flex items-center justify-center">
+            <EmptyState
+              title="No cases match your filters"
+              description="Try modifying your search keywords or switching back to 'All Cases'."
+              action={{
+                label: "Clear All Filters",
+                onClick: handleClearFilters
+              }}
+            />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200/80 dark:border-border-subtle bg-slate-50/75 dark:bg-surface-elevated/75 text-[11px] font-semibold text-slate-500 dark:text-text-muted uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
+                  <th className="py-3 px-4 sm:px-6">Case ID</th>
+                  <th className="py-3 px-4">Customer</th>
+                  <th className="py-3 px-4">Failure Reason</th>
+                  <th className="py-3 px-4 text-right">Amount</th>
+                  <th className="py-3 px-4">Recovery Prob</th>
+                  <th className="py-3 px-4 text-right">Expected Value</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Age</th>
+                  <th className="py-3 px-4 sm:px-6 text-right">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-xs">
+                {filteredCases.map((row) => (
+                  <tr 
+                    key={row.id} 
+                    onClick={() => handleRowClick(row)}
+                    className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/40 transition-colors cursor-pointer group"
+                  >
+                    <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-slate-900 dark:text-text-primary group-hover:text-brand transition-colors">
+                      {row.id}
+                    </td>
+                    <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-text-primary">
+                      {row.customer}
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-600 dark:text-text-secondary">
+                      {row.failure}
+                    </td>
+                    <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-text-primary tabular-nums text-right">
+                      {formatCurrency(row.amount)}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <ProbabilityMeter probability={row.prob} />
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-600 dark:text-text-muted tabular-nums font-mono text-right">
+                      {formatCurrency(row.expected)}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <StatusBadge status={row.status} size="sm" />
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-400 dark:text-text-muted whitespace-nowrap">
+                      {row.age}
+                    </td>
+                    <td className="py-3.5 px-4 sm:px-6 text-right">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRowClick(row);
+                        }}
+                        className="inline-flex items-center gap-1 font-semibold text-brand hover:text-brand-hover text-xs group-hover:underline"
+                      >
+                        {row.action}
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Footer info */}
         <div className="p-3 border-t border-slate-200/80 dark:border-border-subtle bg-slate-50/50 dark:bg-surface text-xs text-slate-500 dark:text-text-muted flex items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-slate-400" />
-            <span>Autonomous sync active • Next scan in 45s</span>
+            <span>Click any case to inspect in quick slide-over drawer</span>
           </div>
           <div className="font-mono text-[11px]">
             Triage Priority: Expected Value Descending
@@ -220,7 +282,15 @@ export default function AtRiskPage() {
 
       </div>
 
+      {/* Case Quick Slide-Over Drawer */}
+      <CaseDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        caseItem={selectedCase}
+      />
+
     </div>
   );
 }
+
 

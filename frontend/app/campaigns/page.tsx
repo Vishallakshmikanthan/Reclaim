@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Megaphone, Plus, Play, Pause, ArrowUpRight, Clock, Users, CheckCircle2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
 
-const CAMPAIGNS = [
+const INITIAL_CAMPAIGNS = [
   {
     id: "CMP-001",
     name: "VIP Checkout Abandonment Recovery",
@@ -38,6 +39,36 @@ const CAMPAIGNS = [
 ];
 
 export default function CampaignsPage() {
+  const { toast } = useToast();
+  const [campaigns, setCampaigns] = useState(INITIAL_CAMPAIGNS);
+
+  const toggleCampaign = (id: string) => {
+    setCampaigns((prev) => 
+      prev.map((c) => {
+        if (c.id === id) {
+          const nextStatus = c.status === "Active" ? "Paused" : "Active";
+          toast({
+            title: nextStatus === "Active" ? "Campaign Resumed" : "Campaign Paused",
+            description: `${c.name} is now ${nextStatus.toLowerCase()}.`,
+            type: nextStatus === "Active" ? "success" : "info"
+          });
+          return { ...c, status: nextStatus };
+        }
+        return c;
+      })
+    );
+  };
+
+  const handleNewCampaign = () => {
+    toast({
+      title: "Campaign Creator",
+      description: "Opening target cohort definition builder...",
+      type: "info"
+    });
+  };
+
+  const activeCount = campaigns.filter(c => c.status === "Active").length;
+
   return (
     <div className="space-y-8 animate-in fade-in duration-300 pb-16">
       
@@ -49,7 +80,7 @@ export default function CampaignsPage() {
               Recovery Campaigns
             </h1>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/40">
-              2 Active
+              {activeCount} Active
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
@@ -57,7 +88,10 @@ export default function CampaignsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2.5">
-          <button className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand-hover rounded-lg transition-colors shadow-sm">
+          <button 
+            onClick={handleNewCampaign}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand-hover rounded-lg transition-all shadow-sm active:scale-[0.98]"
+          >
             <Plus className="w-4 h-4" /> New Campaign
           </button>
         </div>
@@ -65,7 +99,7 @@ export default function CampaignsPage() {
 
       {/* 2. Active Campaigns Cards */}
       <div className="space-y-4">
-        {CAMPAIGNS.map((cmp) => (
+        {campaigns.map((cmp) => (
           <div 
             key={cmp.id}
             className="bg-white dark:bg-surface border border-slate-200/80 dark:border-border-subtle rounded-xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row md:items-center justify-between gap-6"
@@ -112,11 +146,19 @@ export default function CampaignsPage() {
 
             <div className="flex items-center gap-2 self-end md:self-center">
               {cmp.status === "Active" ? (
-                <button className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-surface-elevated transition-colors" title="Pause Campaign">
+                <button 
+                  onClick={() => toggleCampaign(cmp.id)}
+                  className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-surface-elevated transition-colors active:scale-[0.95]" 
+                  title="Pause Campaign"
+                >
                   <Pause className="w-4 h-4" />
                 </button>
               ) : (
-                <button className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-surface-elevated transition-colors" title="Resume Campaign">
+                <button 
+                  onClick={() => toggleCampaign(cmp.id)}
+                  className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-surface-elevated transition-colors active:scale-[0.95]" 
+                  title="Resume Campaign"
+                >
                   <Play className="w-4 h-4 fill-current" />
                 </button>
               )}
@@ -128,4 +170,5 @@ export default function CampaignsPage() {
     </div>
   );
 }
+
 

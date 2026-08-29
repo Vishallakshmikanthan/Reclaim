@@ -1,5 +1,7 @@
 import React from "react";
 import { cn } from "@/lib/utils";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { Info } from "lucide-react";
 
 interface MetricCardProps {
   title: string;
@@ -10,6 +12,7 @@ interface MetricCardProps {
   className?: string;
   valueClassName?: string;
   badge?: string;
+  tooltip?: string;
 }
 
 export function MetricCard({
@@ -21,6 +24,7 @@ export function MetricCard({
   className,
   valueClassName,
   badge,
+  tooltip,
 }: MetricCardProps) {
   return (
     <div
@@ -31,15 +35,23 @@ export function MetricCard({
       )}
     >
       <div className="flex items-center justify-between gap-2 mb-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-text-muted">
-          {title}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-text-muted">
+            {title}
+          </span>
+          {tooltip && (
+            <Tooltip content={tooltip}>
+              <Info className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-text-secondary cursor-help transition-colors" />
+            </Tooltip>
+          )}
+        </div>
         {badge && (
           <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-surface-elevated text-slate-600 dark:text-text-secondary border border-slate-200 dark:border-border-subtle">
             {badge}
           </span>
         )}
       </div>
+
 
       <div className="flex items-baseline justify-between gap-3">
         <div

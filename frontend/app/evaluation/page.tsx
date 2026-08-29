@@ -2,6 +2,7 @@
 
 import React from "react";
 import { formatCurrency } from "@/lib/utils";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { 
   ArrowRight, 
   CheckCircle2, 
@@ -14,6 +15,7 @@ import {
   Zap,
   Lock
 } from "lucide-react";
+
 
 export default function EvaluationPage() {
   return (
@@ -135,7 +137,12 @@ export default function EvaluationPage() {
 
               <tr className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors">
                 <td className="py-4 px-4 sm:px-6 font-medium text-slate-900 dark:text-text-primary">
-                  Case Recovery Rate
+                  <div className="flex items-center gap-1.5">
+                    <span>Case Recovery Rate</span>
+                    <Tooltip content="Proportion of total failed transactions successfully recovered">
+                      <span className="cursor-help text-slate-400">ⓘ</span>
+                    </Tooltip>
+                  </div>
                 </td>
                 <td className="py-4 px-4 font-mono text-slate-600 dark:text-text-secondary">41% (61 / 150)</td>
                 <td className="py-4 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-brand/5 dark:bg-brand-muted/20 border-x border-slate-200/60 dark:border-border-subtle">
@@ -148,7 +155,12 @@ export default function EvaluationPage() {
 
               <tr className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors">
                 <td className="py-4 px-4 sm:px-6 font-medium text-slate-900 dark:text-text-primary">
-                  Total Value Recovered
+                  <div className="flex items-center gap-1.5">
+                    <span>Total Value Recovered</span>
+                    <Tooltip content="Gross INR revenue saved from permanent abandonment">
+                      <span className="cursor-help text-slate-400">ⓘ</span>
+                    </Tooltip>
+                  </div>
                 </td>
                 <td className="py-4 px-4 font-mono text-slate-600 dark:text-text-secondary">₹8,20,000 (38%)</td>
                 <td className="py-4 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-brand/5 dark:bg-brand-muted/20 border-x border-slate-200/60 dark:border-border-subtle">
@@ -161,7 +173,12 @@ export default function EvaluationPage() {
 
               <tr className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors">
                 <td className="py-4 px-4 sm:px-6 font-medium text-slate-900 dark:text-text-primary">
-                  Intervention Success Rate
+                  <div className="flex items-center gap-1.5">
+                    <span>Intervention Success Rate</span>
+                    <Tooltip content="Accuracy of selecting the highest converting channel for each case">
+                      <span className="cursor-help text-slate-400">ⓘ</span>
+                    </Tooltip>
+                  </div>
                 </td>
                 <td className="py-4 px-4 font-mono text-slate-600 dark:text-text-secondary">41% (blind brute-force)</td>
                 <td className="py-4 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-brand/5 dark:bg-brand-muted/20 border-x border-slate-200/60 dark:border-border-subtle">
@@ -173,8 +190,13 @@ export default function EvaluationPage() {
               </tr>
 
               <tr className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors">
-                <td className="py-4 px-4 sm:px-6 font-medium text-slate-900 dark:text-text-primary flex items-center gap-1.5">
-                  False / Prohibited Intervention Rate
+                <td className="py-4 px-4 sm:px-6 font-medium text-slate-900 dark:text-text-primary">
+                  <div className="flex items-center gap-1.5">
+                    <span>False / Prohibited Intervention Rate</span>
+                    <Tooltip content="Rate of wasted retries executed on non-recoverable or fraudulent transactions">
+                      <span className="cursor-help text-slate-400">ⓘ</span>
+                    </Tooltip>
+                  </div>
                 </td>
                 <td className="py-4 px-4 font-mono text-rose-600 dark:text-rose-400">100% (no risk filter)</td>
                 <td className="py-4 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-brand/5 dark:bg-brand-muted/20 border-x border-slate-200/60 dark:border-border-subtle">
@@ -187,7 +209,12 @@ export default function EvaluationPage() {
 
               <tr className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors">
                 <td className="py-4 px-4 sm:px-6 font-medium text-slate-900 dark:text-text-primary">
-                  Deterministic Policy Compliance
+                  <div className="flex items-center gap-1.5">
+                    <span>Deterministic Policy Compliance</span>
+                    <Tooltip content="Adherence to hard guardrails (0 over-contact breaches, 0 cap violations)">
+                      <span className="cursor-help text-slate-400">ⓘ</span>
+                    </Tooltip>
+                  </div>
                 </td>
                 <td className="py-4 px-4 font-mono text-slate-500">0% (unbounded retries)</td>
                 <td className="py-4 px-4 font-mono font-bold text-slate-900 dark:text-text-primary bg-brand/5 dark:bg-brand-muted/20 border-x border-slate-200/60 dark:border-border-subtle">
@@ -200,7 +227,12 @@ export default function EvaluationPage() {
 
               <tr className="hover:bg-slate-50/80 dark:hover:bg-surface-elevated/30 transition-colors">
                 <td className="py-4 px-4 sm:px-6 font-medium text-slate-900 dark:text-text-primary">
-                  Audit Trail Traceability
+                  <div className="flex items-center gap-1.5">
+                    <span>Audit Trail Traceability</span>
+                    <Tooltip content="Complete cryptographic ledger of events across Layer 0 through Layer 5">
+                      <span className="cursor-help text-slate-400">ⓘ</span>
+                    </Tooltip>
+                  </div>
                 </td>
                 <td className="py-4 px-4 font-mono text-slate-500">None</td>
                 <td className="py-4 px-4 font-mono font-bold text-slate-900 dark:text-text-primary bg-brand/5 dark:bg-brand-muted/20 border-x border-slate-200/60 dark:border-border-subtle">

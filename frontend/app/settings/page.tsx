@@ -13,8 +13,10 @@ import {
   ExternalLink,
   Lock
 } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
 
 export default function SettingsPage() {
+  const { toast } = useToast();
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
 
@@ -22,12 +24,23 @@ export default function SettingsPage() {
     navigator.clipboard.writeText(text);
     if (type === "key") {
       setCopiedKey(true);
+      toast({
+        title: "API Key Copied",
+        description: "Razorpay Key ID copied to clipboard.",
+        type: "success",
+      });
       setTimeout(() => setCopiedKey(false), 2000);
     } else {
       setCopiedWebhook(true);
+      toast({
+        title: "Webhook Endpoint Copied",
+        description: "Layer 0 Webhook URL copied to clipboard.",
+        type: "success",
+      });
       setTimeout(() => setCopiedWebhook(false), 2000);
     }
   };
+
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300 pb-16 max-w-5xl">

@@ -1,7 +1,16 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 
-export type StatusType = "recovered" | "atRisk" | "inProgress" | "escalated" | "stopped";
+export type StatusType = 
+  | "recovered" 
+  | "atRisk" 
+  | "inProgress" 
+  | "escalated" 
+  | "stopped"
+  | "failed"
+  | "blocked"
+  | "executing"
+  | "pending";
 
 const statusConfig: Record<StatusType, { label: string; bg: string; text: string; dot: string }> = {
   recovered: {
@@ -34,6 +43,30 @@ const statusConfig: Record<StatusType, { label: string; bg: string; text: string
     text: "text-status-stopped",
     dot: "bg-status-stopped",
   },
+  failed: {
+    label: "Failed",
+    bg: "bg-rose-50 dark:bg-rose-950/40",
+    text: "text-rose-700 dark:text-rose-400",
+    dot: "bg-rose-500",
+  },
+  blocked: {
+    label: "Policy Blocked",
+    bg: "bg-rose-50 dark:bg-rose-950/40",
+    text: "text-rose-700 dark:text-rose-400",
+    dot: "bg-rose-500",
+  },
+  executing: {
+    label: "Executing",
+    bg: "bg-indigo-50 dark:bg-brand-muted/40",
+    text: "text-brand",
+    dot: "bg-brand animate-pulse",
+  },
+  pending: {
+    label: "Pending",
+    bg: "bg-slate-100 dark:bg-surface-elevated",
+    text: "text-slate-600 dark:text-text-muted",
+    dot: "bg-slate-400",
+  },
 };
 
 export function StatusBadge({ 
@@ -62,4 +95,5 @@ export function StatusBadge({
     </span>
   );
 }
+
 

@@ -6,6 +6,9 @@ import { formatCurrency, cn } from "@/lib/utils";
 import { PolicyCheck } from "@/components/ui/PolicyCheck";
 import { ProbabilityMeter } from "@/components/ui/ProbabilityMeter";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Modal } from "@/components/ui/Modal";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { useToast } from "@/components/ui/Toast";
 import { 
   ArrowLeft, 
   BrainCircuit, 
@@ -20,37 +23,72 @@ import {
   AlertTriangle,
   Send,
   FileCheck2,
-  ExternalLink
+  ExternalLink,
+  Info
 } from "lucide-react";
 
 const LIFECYCLE_STEPS = [
-  { key: "DETECT", label: "0. Detect" },
-  { key: "ANALYZE", label: "1. Analyze" },
-  { key: "DECIDE", label: "2. Decide" },
-  { key: "POLICY", label: "3. Policy" },
-  { key: "ACT", label: "4. Act" },
-  { key: "VERIFY", label: "5. Verify" },
-  { key: "RECOVER", label: "6. Recover" }
+  { key: "DETECT", label: "0. Detect", desc: "Webhook Ingestion" },
+  { key: "ANALYZE", label: "1. Analyze", desc: "ML Triage & Scoring" },
+  { key: "DECIDE", label: "2. Decide", desc: "AI Plan Formulation" },
+  { key: "POLICY", label: "3. Policy", desc: "Deterministic Check" },
+  { key: "ACT", label: "4. Act", desc: "Razorpay Gateway Call" },
+  { key: "VERIFY", label: "5. Verify", desc: "Telemetry Confirm" },
+  { key: "RECOVER", label: "6. Recover", desc: "Ledger Settlement" }
 ];
 
 export default function CaseDecisionPage({ params }: { params: { id: string } }) {
   const caseId = params.id || "RC-2024-081";
-  const [executionState, setExecutionState] = useState<"idle" | "executing" | "verifying" | "success" | "blocked" | "timeout">("idle");
+  const { toast } = useToast();
+  
+  const [executionState, setExecutionState] = useState<"idle" | "authorizing" | "executing" | "verifying" | "success" | "blocked" | "timeout">("idle");
   const [lifecycleProgress, setLifecycleProgress] = useState(3); // DETECT, ANALYZE, DECIDE, POLICY evaluated
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
-  const handleExecute = () => {
-    setExecutionState("executing");
-    setLifecycleProgress(4); // ACT
+  const handleStartExecute = () => {
+    setIsConfirmModalOpen(true);
+  };
+
+  const handleConfirmExecute = () => {
+    setIsConfirmModalOpen(false);
+    setExecutionState("authorizing");
+    setLifecycleProgress(3);
     
+    toast({
+      title: "Authorizing Action",
+      description: "Verifying 6 deterministic guardrails with Layer 3 policy engine...",
+      type: "info",
+      duration: 1500
+    });
+
     setTimeout(() => {
-      setExecutionState("verifying");
-      setLifecycleProgress(5); // VERIFY
+      setExecutionState("executing");
+      setLifecycleProgress(4); // ACT
       
+      toast({
+        title: "Executing Primary Action",
+        description: "Triggering idempotent POST /v1/payments/pay_P4qX92vLmK0/retry...",
+        type: "info",
+        duration: 2000
+      });
+
       setTimeout(() => {
-        setExecutionState("success");
-        setLifecycleProgress(6); // RECOVER
+        setExecutionState("verifying");
+        setLifecycleProgress(5); // VERIFY
+
+        setTimeout(() => {
+          setExecutionState("success");
+          setLifecycleProgress(6); // RECOVER
+          
+          toast({
+            title: "Recovery Confirmed ✓",
+            description: "₹8,499 recovered successfully. Immutable ledger committed.",
+            type: "success",
+            duration: 4000
+          });
+        }, 1200);
       }, 1500);
-    }, 2000);
+    }, 600);
   };
 
   const handleTimeoutDemo = () => {
@@ -59,18 +97,34 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     
     setTimeout(() => {
       setExecutionState("timeout");
-    }, 2000);
+      toast({
+        title: "Verification Required",
+        description: "Gateway response timed out. Duplicate execution halted.",
+        type: "warning"
+      });
+    }, 1500);
   };
 
   const handlePolicyBlockDemo = () => {
     setExecutionState("blocked");
     setLifecycleProgress(3);
+    toast({
+      title: "Policy Block Enforced",
+      description: "Action prohibited by maximum retry limit (POL-01). Escalated to desk.",
+      type: "error"
+    });
   };
 
   const handleResetDemo = () => {
     setExecutionState("idle");
     setLifecycleProgress(3);
+    toast({
+      title: "Scenario Reset",
+      description: "Case restored to initial triage state.",
+      type: "info"
+    });
   };
+
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300 pb-16">
@@ -471,8 +525,8 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
               {executionState === "idle" && (
                 <>
                   <button 
-                    onClick={handleExecute}
-                    className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand-hover text-white py-3 px-4 rounded-lg text-sm font-semibold transition-all shadow-sm hover:shadow active:scale-[0.99]"
+                    onClick={handleStartExecute}
+                    className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand-hover text-white py-3 px-4 rounded-lg text-sm font-semibold transition-all shadow-sm hover:shadow active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
                   >
                     <Play className="w-4 h-4 fill-current" />
                     Execute Recovery Action
@@ -485,65 +539,76 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
                 </>
               )}
 
+              {executionState === "authorizing" && (
+                <button disabled className="w-full flex items-center justify-center gap-2 bg-slate-100 dark:bg-surface-elevated text-slate-600 dark:text-text-muted py-3 px-4 rounded-lg text-xs font-semibold border border-slate-200 dark:border-border-subtle">
+                  <Activity className="w-4 h-4 animate-spin text-brand" />
+                  Validating Deterministic Policy (Layer 3)...
+                </button>
+              )}
+
               {executionState === "executing" && (
                 <button disabled className="w-full flex items-center justify-center gap-2 bg-slate-100 dark:bg-surface-elevated text-slate-600 dark:text-text-muted py-3 px-4 rounded-lg text-xs font-semibold border border-slate-200 dark:border-border-subtle">
                   <Activity className="w-4 h-4 animate-spin text-brand" />
-                  Triggering Razorpay Retry...
+                  Triggering Razorpay Retry (Layer 4)...
                 </button>
               )}
               
               {executionState === "verifying" && (
                 <button disabled className="w-full flex items-center justify-center gap-2 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 py-3 px-4 rounded-lg text-xs font-semibold border border-amber-200 dark:border-amber-900/40">
                   <Activity className="w-4 h-4 animate-pulse" />
-                  Verifying Gateway Outcome...
+                  Verifying Gateway Outcome (Layer 5)...
                 </button>
               )}
 
               {executionState === "success" && (
-                <div className="space-y-3">
-                  <div className="w-full flex items-center justify-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 py-3 px-4 rounded-lg text-xs font-bold border border-emerald-200 dark:border-emerald-900/40">
-                    <CheckCircle2 className="w-4 h-4" />
-                    Successfully Recovered ₹8,499
+                <div className="space-y-3 animate-in fade-in duration-200">
+                  <div className="w-full flex items-center justify-between p-3.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-lg text-xs font-bold border border-emerald-200 dark:border-emerald-900/40">
+                    <span className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Recovered ₹8,499 • Case Resolved
+                    </span>
+                    <span className="font-mono text-[10px]">200 OK</span>
                   </div>
                   <button 
                     onClick={handleResetDemo}
-                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors"
+                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors py-1"
                   >
-                    <RotateCcw className="w-3.5 h-3.5" /> Reset Demo State
+                    <RotateCcw className="w-3.5 h-3.5" /> Reset Scenario
                   </button>
                 </div>
               )}
 
               {executionState === "timeout" && (
-                <div className="space-y-3">
-                  <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-lg text-xs text-amber-800 dark:text-amber-300">
+                <div className="space-y-3 animate-in fade-in duration-200">
+                  <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-lg text-xs text-amber-800 dark:text-amber-300">
                     <div className="font-semibold flex items-center gap-1.5 mb-1">
-                      <Clock className="w-3.5 h-3.5" /> Action Timed Out
+                      <Clock className="w-3.5 h-3.5" /> Recovery Action Unconfirmed
                     </div>
-                    Gateway response unconfirmed. Duplicate execution prevented by idempotency key.
+                    Gateway response latency exceeded 15s. Verification required — duplicate execution was prevented by idempotency key.
                   </div>
                   <button 
                     onClick={handleResetDemo}
-                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors"
+                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors py-1"
                   >
-                    <RotateCcw className="w-3.5 h-3.5" /> Reset
+                    <RotateCcw className="w-3.5 h-3.5" /> Reset Scenario
                   </button>
                 </div>
               )}
               
               {executionState === "blocked" && (
-                <div className="space-y-3">
-                  <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 rounded-lg text-xs text-rose-800 dark:text-rose-300">
+                <div className="space-y-3 animate-in fade-in duration-200">
+                  <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 rounded-lg text-xs text-rose-800 dark:text-rose-300">
                     <div className="font-semibold flex items-center gap-1.5 mb-1">
-                      <XCircle className="w-3.5 h-3.5" /> Action Prohibited
+                      <XCircle className="w-3.5 h-3.5" /> Action Blocked by Deterministic Policy
                     </div>
-                    Deterministic rule violation detected. Automated recovery halted and assigned to operations desk.
+                    <strong>Reason:</strong> Maximum retry limit reached (3/3 attempts).<br />
+                    <strong>Recommended Next Action:</strong> Case escalated to human operations review.
                   </div>
                   <button 
                     onClick={handleResetDemo}
-                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors"
+                    className="w-full text-xs text-slate-500 hover:text-brand flex items-center justify-center gap-1 transition-colors py-1"
                   >
-                    <RotateCcw className="w-3.5 h-3.5" /> Reset Demo State
+                    <RotateCcw className="w-3.5 h-3.5" /> Reset Scenario
                   </button>
                 </div>
               )}
@@ -554,7 +619,54 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
 
       </div>
 
+      {/* Confirmation Modal */}
+      <Modal
+        isOpen={isConfirmModalOpen}
+        onClose={() => setIsConfirmModalOpen(false)}
+        title="Execute Recovery Action?"
+        description="Verify the financial consequence and policy approval status before triggering execution."
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-surface-elevated border border-slate-200/80 dark:border-border-subtle space-y-2.5">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Case Identifier</span>
+              <span className="font-mono font-semibold text-slate-900 dark:text-text-primary">{caseId}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Transaction Amount</span>
+              <span className="font-bold text-slate-900 dark:text-text-primary text-sm">₹8,499</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Selected Action</span>
+              <span className="font-medium text-brand">Razorpay Idempotent Retry</span>
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-slate-200/60 dark:border-border-subtle">
+              <span className="text-slate-500">Deterministic Policy</span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> 6/6 Invariants Approved
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 pt-2">
+            <button
+              onClick={() => setIsConfirmModalOpen(false)}
+              className="px-3.5 py-2 rounded-lg border border-slate-200 dark:border-border-subtle bg-white dark:bg-surface text-slate-700 dark:text-text-secondary font-medium hover:bg-slate-50 dark:hover:bg-surface-elevated transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirmExecute}
+              className="px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover text-white font-semibold transition-all shadow-sm active:scale-[0.98]"
+            >
+              Authorize & Execute
+            </button>
+          </div>
+        </div>
+      </Modal>
+
     </div>
   );
 }
+
 
