@@ -95,3 +95,18 @@ The frontend follows a clean, decoupled architecture where presentation componen
 3. **Traceable Versioning**:
    * Every executed action attributes its governing `policyVersion` in the immutable audit ledger.
    * Policy rollbacks create new forward versions (e.g. `v3` restoring `v1` snapshot) without mutating historical records.
+# Persistence architecture (Step 16)
+
+```text
+Next.js (existing mock services; no database access)
+        |
+     FastAPI
+        |
+Application services + deterministic engines
+        |
+Repository interfaces / PostgreSQL repositories
+        |
+PostgreSQL
+```
+
+`REPOSITORY_BACKEND=postgres` is the application default. In-memory repositories remain only for isolated tests and must not be used for a production-style startup. Each repository is merchant-scoped using the development-only `DEMO_MERCHANT_ID` placeholder until authentication arrives.
