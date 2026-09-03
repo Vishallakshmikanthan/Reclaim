@@ -99,9 +99,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               </div>
               <div className="space-y-0.5">
                 {section.items.map((item) => {
-                  const isActive = item.href === "/" 
+                  const isActive = pathname ? (item.href === "/" 
                     ? pathname === "/" 
-                    : pathname.startsWith(item.href);
+                    : pathname.startsWith(item.href)) : false;
 
                   return (
                     <Link

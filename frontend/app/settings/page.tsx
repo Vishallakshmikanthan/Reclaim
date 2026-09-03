@@ -402,12 +402,12 @@ export default function SettingsPage() {
             <div className="mt-1 flex rounded-lg shadow-sm">
               <input 
                 readOnly 
-                value="rzp_test_99x81k2la100" 
+                value="rzp_test_••••••••" 
                 className="w-full bg-slate-50 dark:bg-surface-elevated border border-slate-200 dark:border-border-subtle rounded-l-lg px-3 py-2 font-mono text-slate-800 dark:text-text-primary"
               />
               <button 
                 type="button"
-                onClick={() => copyToClipboard("rzp_test_99x81k2la100", "key")}
+                onClick={() => copyToClipboard("rzp_test_••••••••", "key")}
                 className="bg-slate-100 dark:bg-surface-elevated border border-l-0 border-slate-200 dark:border-border-subtle rounded-r-lg px-3 hover:bg-slate-200 dark:hover:bg-surface transition-colors flex items-center justify-center text-slate-600 dark:text-text-secondary"
               >
                 {copiedKey ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}

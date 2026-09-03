@@ -69,8 +69,8 @@ function AtRiskContent() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   useEffect(() => {
-    const failureParam = searchParams.get("failure");
-    const tabParam = searchParams.get("tab");
+    const failureParam = searchParams?.get("failure");
+    const tabParam = searchParams?.get("tab");
     if (failureParam) {
       setFailureFilter(failureParam);
     }

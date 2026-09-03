@@ -16,7 +16,7 @@ import { useReclaim } from "@/lib/context/ReclaimContext";
 import { services } from "@/lib/services/serviceFactory";
 import { apiClient } from "@/lib/api/client";
 import { extractRiskSignals } from "@/lib/recovery/decision-engine";
-import { Case, AuditEvent } from "@/lib/types";
+import { Case, AuditEvent, PolicyResult } from "@/lib/types";
 import { 
   ArrowLeft, 
   BrainCircuit, 
@@ -76,8 +76,12 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
   const [currentCase, setCurrentCase] = useState<any>(null);
-
   const [error, setError] = useState<string | null>(null);
+
+  // Dynamic AI synthesis, risk signals, deterministic policy check, and intelligent recovery strategy
+  const [aiDecision, setAiDecision] = useState<any>(null);
+  const [strategy, setStrategy] = useState<any>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchCase = async () => {
@@ -95,22 +99,6 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     fetchCase();
   }, [caseId]);
 
-  // Loading state if no currentCase yet
-  if (!currentCase) {
-    if (error === "CASE_NOT_FOUND") return <div className="p-8 text-center text-slate-500">Case not found.</div>;
-    if (error) return <div className="p-8 text-center text-red-500">An error occurred loading the case.</div>;
-    return <div className="p-8 text-center text-slate-500 animate-pulse">Loading case details...</div>;
-  }
-
-
-  const executionState = getCaseExecutionState(currentCase.id);
-  const isRecovered = currentCase.status === "recovered";
-
-  // Dynamic AI synthesis, risk signals, deterministic policy check, and intelligent recovery strategy
-  const [aiDecision, setAiDecision] = useState<any>(null);
-  const [strategy, setStrategy] = useState<any>(null);
-  const [decisionError, setDecisionError] = useState<string | null>(null);
-  
   useEffect(() => {
     if (currentCase) {
       if (process.env.NEXT_PUBLIC_USE_MOCKS === 'true') {
@@ -188,14 +176,36 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
     }
   }, [currentCase, getCaseDecision, getCaseStrategy]);
 
+  const executionState = currentCase ? getCaseExecutionState(currentCase.id) : "idle";
+  const isRecovered = currentCase ? currentCase.status === "recovered" : false;
 
-  // Loading state if no decision yet
-  if (!aiDecision || !strategy) {
-    return <div className="p-8 text-center text-slate-500 animate-pulse">Synthesizing intelligent decision...</div>;
-  }
+  const policyResult = useMemo<PolicyResult>(() => {
+    if (!currentCase) {
+      return {
+        allowed: true,
+        checks: [],
+        blockedRules: [],
+        summary: "Pending evaluation",
+        recommendedNextAction: "Pending"
+      };
+    }
+    return getCasePolicy(currentCase);
+  }, [currentCase, getCasePolicy]);
 
-  const policyResult = useMemo(() => getCasePolicy(currentCase), [currentCase, getCasePolicy]);
-  const signals = useMemo(() => extractRiskSignals(currentCase), [currentCase]);
+  const signals = useMemo(() => {
+    if (!currentCase) {
+      return {
+        paymentAge: "0 min",
+        previousSuccessfulPayments: 0,
+        retryAttempts: 0,
+        contactCount: 0,
+        gatewayDowntime: false,
+        cardExpired: false,
+        highValueTx: false,
+      };
+    }
+    return extractRiskSignals(currentCase);
+  }, [currentCase]);
 
   // Compute lifecycle progress step (0 to 6)
   const lifecycleProgress = useMemo(() => {
@@ -210,8 +220,21 @@ export default function CaseDecisionPage({ params }: { params: { id: string } })
 
   // Filter audit events specific to this case
   const caseAuditEvents = useMemo(() => {
+    if (!currentCase) return [];
     return auditEvents.filter((e) => e.case === currentCase.id);
-  }, [auditEvents, currentCase.id]);
+  }, [auditEvents, currentCase]);
+
+  // Loading state if no currentCase yet
+  if (!currentCase) {
+    if (error === "CASE_NOT_FOUND") return <div className="p-8 text-center text-slate-500">Case not found.</div>;
+    if (error) return <div className="p-8 text-center text-red-500">An error occurred loading the case.</div>;
+    return <div className="p-8 text-center text-slate-500 animate-pulse">Loading case details...</div>;
+  }
+
+  // Loading state if no decision yet
+  if (!aiDecision || !strategy) {
+    return <div className="p-8 text-center text-slate-500 animate-pulse">Synthesizing intelligent decision...</div>;
+  }
 
   const handleStartExecute = () => {
     if (!policyResult.allowed) {

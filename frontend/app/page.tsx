@@ -60,8 +60,11 @@ export default function CommandCenter() {
     serviceHealth,
     restoreService,
     resetDemoData, 
+    refreshData,
     executeRecovery, 
-    escalateCase 
+    escalateCase,
+    isLoading,
+    isBackendUnavailable
   } = useReclaim();
 
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
@@ -208,6 +211,21 @@ export default function CommandCenter() {
     }).slice(0, 6);
   }, [auditEvents, activityFilter]);
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6 animate-pulse p-4 pb-16">
+        <div className="h-10 bg-slate-200 dark:bg-surface-elevated rounded-lg w-1/3"></div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-32 bg-slate-200 dark:bg-surface-elevated rounded-xl"></div>
+          ))}
+        </div>
+        <div className="h-48 bg-slate-200 dark:bg-surface-elevated rounded-xl"></div>
+        <div className="h-64 bg-slate-200 dark:bg-surface-elevated rounded-xl"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in duration-300 pb-16">
       
@@ -220,15 +238,17 @@ export default function CommandCenter() {
             </h1>
             <span className={cn(
               "inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border",
-              degradedServices.length > 0
+              isBackendUnavailable
+                ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border-rose-300"
+                : degradedServices.length > 0
                 ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-300"
                 : "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-900/40"
             )}>
               <span className={cn(
                 "w-1.5 h-1.5 rounded-full",
-                degradedServices.length > 0 ? "bg-amber-500 animate-bounce" : "bg-emerald-500 animate-pulse"
+                isBackendUnavailable ? "bg-rose-500 animate-pulse" : degradedServices.length > 0 ? "bg-amber-500 animate-bounce" : "bg-emerald-500 animate-pulse"
               )} />
-              {degradedServices.length > 0 ? `${degradedServices.length} Service Degraded` : "Realtime Cockpit"}
+              {isBackendUnavailable ? "Backend Disconnected" : degradedServices.length > 0 ? `${degradedServices.length} Service Degraded` : "Realtime Cockpit"}
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
@@ -262,8 +282,31 @@ export default function CommandCenter() {
         </div>
       </div>
 
+      {/* Backend Disconnected Alert Banner (Truthful State) */}
+      {isBackendUnavailable && (
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-900 dark:text-rose-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-300">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-xs uppercase tracking-wider block">
+                Backend API Unavailable (Truthful Mode)
+              </span>
+              <p className="text-xs text-rose-800 dark:text-rose-300 mt-0.5">
+                Unable to connect to the FastAPI backend service. In production mode, no mock data is rendered. Start the backend or configure NEXT_PUBLIC_USE_MOCKS=true for offline development.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => refreshData()}
+            className="self-start sm:self-auto px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors whitespace-nowrap"
+          >
+            Retry Connection
+          </button>
+        </div>
+      )}
+
       {/* Degraded Services Alert Banner */}
-      {degradedServices.length > 0 && (
+      {degradedServices.length > 0 && !isBackendUnavailable && (
         <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-900 dark:text-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-300">
           <div className="flex items-start gap-2.5">
             <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
@@ -462,7 +505,15 @@ export default function CommandCenter() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-border-subtle text-slate-700 dark:text-text-secondary">
-              {queueCases.map((c) => {
+              {queueCases.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-slate-500 dark:text-text-muted text-xs">
+                    {isBackendUnavailable 
+                      ? "Backend service is offline. No live recovery cases available."
+                      : "No recovery cases in this queue."}
+                  </td>
+                </tr>
+              ) : queueCases.map((c) => {
                 const isRecovered = c.status === "recovered";
                 const isEscalated = c.status === "escalated";
 
@@ -688,7 +739,13 @@ export default function CommandCenter() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {filteredActivities.map((act) => {
+          {filteredActivities.length === 0 ? (
+            <div className="col-span-full p-8 text-center text-slate-500 dark:text-text-muted text-xs bg-slate-50/50 dark:bg-surface-elevated/30 rounded-lg border border-dashed border-slate-200 dark:border-border-subtle">
+              {isBackendUnavailable 
+                ? "Live audit stream unavailable while backend is disconnected." 
+                : "No recovery activity recorded for the selected filter."}
+            </div>
+          ) : filteredActivities.map((act) => {
             const isSuccess = act.event.includes("SUCCEEDED") || act.event.includes("RESOLVED") || act.event.includes("APPROVED");
             const isBlocked = act.event.includes("BLOCKED") || act.event.includes("FAILED");
             const isTimeout = act.event.includes("TIMEOUT") || act.event.includes("ESCALATED");

@@ -34,8 +34,8 @@ function AuditTrailContent() {
 
   // Read URL query params (e.g. ?case=RC-2024-081)
   useEffect(() => {
-    const caseParam = searchParams.get("case");
-    const layerParam = searchParams.get("layer");
+    const caseParam = searchParams?.get("case");
+    const layerParam = searchParams?.get("layer");
     if (caseParam) {
       setSearchTerm(caseParam);
     }

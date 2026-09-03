@@ -10,7 +10,7 @@ export const APP_CONFIG = {
   VERSION: "1.0.0-prototype",
   ENVIRONMENT: (process.env.NODE_ENV || "development") as "development" | "production" | "test",
   IS_DEMO_MODE: true, // Deterministic prototype mode
-  API_BASE_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1",
+  API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1",
   DEFAULT_CURRENCY: "INR" as const,
   DEFAULT_TIMEZONE: "Asia/Kolkata" as const,
   DEFAULT_LOCALE: "en-IN" as const,

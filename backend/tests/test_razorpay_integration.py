@@ -32,8 +32,10 @@ def create_test_case(cid=None, amount=150000, failure_type="UPI Timeout", demo_s
     assert res.status_code in (200, 201), f"Create case failed: {res.text}"
     return case_id, payload
 
-def sign_webhook_payload(payload_bytes: bytes, secret: str = "mock_secret_key_123") -> str:
-    return hmac.new(secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
+def sign_webhook_payload(payload_bytes: bytes, secret: str | None = None) -> str:
+    s = Settings()
+    active_secret = secret or s.razorpay_webhook_secret or s.razorpay_key_secret or "mock_secret_key_123"
+    return hmac.new(active_secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
 
 def test_live_key_prevention_security():
     """Fail closed: Live Razorpay credentials must raise a validation error."""
@@ -101,7 +103,7 @@ def test_webhook_signature_verification():
         }
     }
     payload_bytes = json.dumps(payload).encode("utf-8")
-    valid_sig = sign_webhook_payload(payload_bytes, "mock_secret_key_123")
+    valid_sig = sign_webhook_payload(payload_bytes)
     
     # 1. Invalid signature
     res_invalid = client.post(
@@ -147,7 +149,7 @@ def test_webhook_idempotency():
         }
     }
     payload_bytes = json.dumps(payload).encode("utf-8")
-    sig = sign_webhook_payload(payload_bytes, "mock_secret_key_123")
+    sig = sign_webhook_payload(payload_bytes)
     
     first = client.post("/api/v1/webhooks/razorpay", content=payload_bytes, headers={"Content-Type": "application/json", "X-Razorpay-Signature": sig})
     assert first.status_code == 200
@@ -191,7 +193,7 @@ def test_webhook_updates_pending_recovery_action():
         }
     }
     payload_bytes = json.dumps(payload).encode("utf-8")
-    sig = sign_webhook_payload(payload_bytes, "mock_secret_key_123")
+    sig = sign_webhook_payload(payload_bytes)
     
     webhook_res = client.post(
         "/api/v1/webhooks/razorpay",
@@ -242,7 +244,7 @@ def test_webhook_payment_failed_does_not_recover():
         }
     }
     payload_bytes = json.dumps(payload).encode("utf-8")
-    sig = sign_webhook_payload(payload_bytes, "mock_secret_key_123")
+    sig = sign_webhook_payload(payload_bytes)
     
     client.post(
         "/api/v1/webhooks/razorpay",

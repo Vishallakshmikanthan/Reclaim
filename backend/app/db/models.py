@@ -1,12 +1,11 @@
 from datetime import datetime, timezone
 from uuid import uuid4
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base
 def utcnow(): return datetime.now(timezone.utc)
 def uid(): return str(uuid4())
-JSON = JSONB
+
 class MerchantModel(Base):
     __tablename__="merchants"; id: Mapped[str]=mapped_column(String(64), primary_key=True); business_name: Mapped[str]=mapped_column(String(200)); industry: Mapped[str|None]=mapped_column(String(100)); currency: Mapped[str]=mapped_column(String(3), default="INR"); timezone: Mapped[str]=mapped_column(String(64), default="Asia/Kolkata"); default_language: Mapped[str]=mapped_column(String(32), default="English"); created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=utcnow); updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 class PolicyModel(Base):

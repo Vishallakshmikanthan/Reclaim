@@ -18,7 +18,7 @@ interface TopbarProps {
 
 export function Topbar({ onMenuClick }: TopbarProps) {
   const pathname = usePathname();
-  const title = getPageTitle(pathname);
+  const title = getPageTitle(pathname || "/");
 
   const toggleTheme = () => {
     const isDark = document.documentElement.classList.toggle("dark");

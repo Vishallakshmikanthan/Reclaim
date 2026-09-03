@@ -212,9 +212,8 @@ class NemotronClient:
         }
 
         user_content = (
-            f"Please analyze this sanitized recovery case and provide a structured recommendation:\n\n"
-            f"{context.model_dump_json(indent=2)}\n\n"
-            f"Respond ONLY with a JSON object matching the required schema."
+            f"Analyze this sanitized recovery case and return your recommendation strictly as a valid JSON object matching the required schema. Do NOT output any markdown prose, reasoning preamble, or comments:\n\n"
+            f"{context.model_dump_json(indent=2)}"
         )
 
         payload = {
@@ -225,7 +224,7 @@ class NemotronClient:
             ],
             "temperature": 0.1,
             "top_p": 0.95,
-            "max_tokens": 1024,
+            "max_tokens": 4096,
         }
 
         try:
@@ -252,7 +251,8 @@ class NemotronClient:
         if not choices:
             raise AIValidationFailure("NVIDIA API returned empty choices list.")
         
-        raw_text = choices[0].get("message", {}).get("content", "").strip()
+        msg = choices[0].get("message", {})
+        raw_text = msg.get("content", "").strip() or msg.get("reasoning_content", "").strip()
         if not raw_text:
             raise AIValidationFailure("NVIDIA API returned empty response message content.")
 
@@ -262,6 +262,12 @@ class NemotronClient:
             match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned_text)
             if match:
                 cleaned_text = match.group(1).strip()
+
+        if not (cleaned_text.startswith("{") and cleaned_text.endswith("}")):
+            first_brace = cleaned_text.find("{")
+            last_brace = cleaned_text.rfind("}")
+            if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                cleaned_text = cleaned_text[first_brace:last_brace + 1].strip()
 
         try:
             parsed = json.loads(cleaned_text)
@@ -294,7 +300,7 @@ class NemotronClient:
             ],
             "temperature": 0.1,
             "top_p": 0.95,
-            "max_tokens": 1024,
+            "max_tokens": 4096,
         }
 
         try:
@@ -321,7 +327,8 @@ class NemotronClient:
         if not choices:
             raise AIValidationFailure("NVIDIA API returned empty choices list.")
         
-        raw_text = choices[0].get("message", {}).get("content", "").strip()
+        msg = choices[0].get("message", {})
+        raw_text = msg.get("content", "").strip() or msg.get("reasoning_content", "").strip()
         if not raw_text:
             raise AIValidationFailure("NVIDIA API returned empty response message content.")
 
@@ -330,6 +337,12 @@ class NemotronClient:
             match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned_text)
             if match:
                 cleaned_text = match.group(1).strip()
+
+        if not (cleaned_text.startswith("{") and cleaned_text.endswith("}")):
+            first_brace = cleaned_text.find("{")
+            last_brace = cleaned_text.rfind("}")
+            if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                cleaned_text = cleaned_text[first_brace:last_brace + 1].strip()
 
         try:
             parsed = json.loads(cleaned_text)

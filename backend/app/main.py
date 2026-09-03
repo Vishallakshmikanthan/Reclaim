@@ -9,6 +9,7 @@ from .repositories.factory import repository_context
 from .schemas import *
 from .services.application import Services
 
+get_settings.cache_clear()
 settings=get_settings()
 app=FastAPI(title=settings.app_name,description="Revenue recovery orchestration API",version=settings.app_version)
 app.add_middleware(CORSMiddleware,allow_origins=settings.origins,allow_credentials=True,allow_methods=["GET","POST","PUT","OPTIONS"],allow_headers=["Content-Type","Idempotency-Key","X-Razorpay-Signature"])

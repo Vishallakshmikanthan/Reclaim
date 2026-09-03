@@ -487,12 +487,15 @@ def test_merchant_isolation_in_ai_context():
 
 def test_live_nemotron_api_call_if_key_available():
     """If NVIDIA_API_KEY is present in environment, test real external call to NVIDIA hosted API."""
-    key = os.environ.get("NVIDIA_API_KEY")
+    settings = Settings()
+    key = os.environ.get("NVIDIA_API_KEY") or settings.nvidia_api_key
     if not key or not key.strip():
         pytest.skip("NVIDIA_API_KEY is not set in environment; skipping live external API test.")
 
-    model = os.environ.get("NVIDIA_NEMOTRON_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
-    provider = NemotronRecoveryProvider(api_key=key, model=model)
+    model = os.environ.get("NVIDIA_NEMOTRON_MODEL") or settings.nvidia_nemotron_model
+    base_url = settings.nvidia_api_base_url
+    timeout = float(os.environ.get("AI_REQUEST_TIMEOUT_SECONDS", settings.ai_request_timeout_seconds or 30.0))
+    provider = NemotronRecoveryProvider(api_key=key, model=model, base_url=base_url, timeout_seconds=timeout)
     policy = PolicyVersion(version="v1", created_by="system", active=True, configuration=PolicyConfiguration())
     case = Case(
         id="case_live_test",

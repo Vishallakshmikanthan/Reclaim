@@ -69,6 +69,8 @@ interface ReclaimContextType {
   
   // Real-time deterministic metrics
   metrics: OperationalMetrics;
+  isLoading: boolean;
+  isBackendUnavailable: boolean;
 
   // Merchant Profile & Policy Management
   merchantProfile: MerchantProfile;
@@ -118,23 +120,44 @@ import { BrowserStorage, STORAGE_KEYS } from "../storage/browserStorage";
 import { services } from "../services/serviceFactory";
 import { apiClient } from "../api/client";
 
+const EMPTY_METRICS: OperationalMetrics = {
+  revenueAtRisk: 0,
+  revenueRecovered: 0,
+  unrecoveredRevenue: 0,
+  recoveryRate: 0,
+  casesResolvedRatio: 0,
+  activeAtRiskCount: 0,
+  inProgressCount: 0,
+  recoveredCount: 0,
+  escalatedCount: 0,
+  stoppedCount: 0,
+  averageRecoveredAmount: 0,
+  averageTimeToRecoveryMin: 0,
+  medianTimeToRecoveryMin: 0,
+  totalCases: 0,
+};
+
 export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
+  const isMockMode = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
+
+  const [isLoading, setIsLoading] = useState<boolean>(!isMockMode);
+  const [isBackendUnavailable, setIsBackendUnavailable] = useState<boolean>(false);
 
   const [cases, setCases] = useState<Case[]>(() => {
-    return BrowserStorage.getItem<Case[]>(STORAGE_KEYS.CASES, INITIAL_MOCK_CASES);
+    return isMockMode ? BrowserStorage.getItem<Case[]>(STORAGE_KEYS.CASES, INITIAL_MOCK_CASES) : [];
   });
 
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>(() => {
-    return BrowserStorage.getItem<AuditEvent[]>(STORAGE_KEYS.AUDIT_EVENTS, INITIAL_AUDIT_EVENTS);
+    return isMockMode ? BrowserStorage.getItem<AuditEvent[]>(STORAGE_KEYS.AUDIT_EVENTS, INITIAL_AUDIT_EVENTS) : [];
   });
 
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
-    return BrowserStorage.getItem<Campaign[]>(STORAGE_KEYS.CAMPAIGNS, INITIAL_CAMPAIGNS);
+    return isMockMode ? BrowserStorage.getItem<Campaign[]>(STORAGE_KEYS.CAMPAIGNS, INITIAL_CAMPAIGNS) : [];
   });
 
   const [communications, setCommunications] = useState<CommunicationMessage[]>(() => {
-    return BrowserStorage.getItem<CommunicationMessage[]>(STORAGE_KEYS.COMMUNICATIONS, INITIAL_COMMUNICATIONS);
+    return isMockMode ? BrowserStorage.getItem<CommunicationMessage[]>(STORAGE_KEYS.COMMUNICATIONS, INITIAL_COMMUNICATIONS) : [];
   });
 
   const [serviceHealth, setServiceHealth] = useState<Record<ServiceType, ServiceHealth>>(() => {
@@ -157,10 +180,11 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   const [serverMetrics, setServerMetrics] = useState<OperationalMetrics | null>(null);
   const [executionProgressMap, setExecutionProgressMap] = useState<Record<string, ExecutionProgress>>({});
 
-  // API Initialization
+  // API Initialization (Server Authoritative)
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_USE_MOCKS !== 'true') {
+    if (!isMockMode) {
       const loadAll = async () => {
+        setIsLoading(true);
         try {
           const [
             apiCases, 
@@ -186,49 +210,59 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
           setActivePolicy(apiPolicy);
           setPolicyHistory(apiPolicyHistory);
           setServerMetrics(apiMetrics);
-          const healthRes = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"}/api/v1/system/health`).catch(() => null);
-          if (healthRes && healthRes.ok) {
-            const healthData = await healthRes.json();
-            // Map backend health to frontend serviceHealth format if needed
-            // For now, we'll just set it if format matches, or mock mapping.
+          setIsBackendUnavailable(false);
+
+          const healthData = await apiClient.get<{ status: string; services: Record<string, string> }>("/api/v1/system/health").catch(() => null);
+          if (healthData && healthData.services) {
             const mappedHealth = Object.keys(INITIAL_SERVICE_HEALTH).reduce((acc, key) => {
-              const statusStr = healthData.services[key.toLowerCase()] || "OPERATIONAL";
-              acc[key] = {
-                service: key,
-                status: statusStr === "OPERATIONAL" ? "OPERATIONAL" : "DEGRADED",
-                latency: Math.floor(Math.random() * 50) + 10,
-                lastChecked: new Date().toISOString()
+              const base = INITIAL_SERVICE_HEALTH[key as ServiceType];
+              const statusStr = healthData.services[key.toLowerCase()] || healthData.services[key] || "ready";
+              acc[key as ServiceType] = {
+                ...base,
+                status: (statusStr === "ready" || statusStr === "OPERATIONAL" || statusStr === "ok") ? "OPERATIONAL" : "DEGRADED",
+                latencyMs: Math.floor(Math.random() * 50) + 10,
+                lastUpdated: new Date().toISOString()
               };
               return acc;
-            }, {} as Record<string, any>);
+            }, {} as Record<ServiceType, ServiceHealth>);
             setServiceHealth(mappedHealth);
           }
-
         } catch (e) {
           console.error("Failed to load data from backend API:", e);
+          setIsBackendUnavailable(true);
           toast({ title: "Backend Unavailable", description: "Failed to connect to the Reclaim API.", type: "error" });
+        } finally {
+          setIsLoading(false);
         }
       };
       loadAll();
     }
-  }, []);
+  }, [isMockMode, toast]);
 
-  // Synchronize with Centralized Storage
+  // Synchronize with Centralized Storage (Only when in Mock Mode or after successful backend fetch)
   useEffect(() => {
-    BrowserStorage.setItem(STORAGE_KEYS.CASES, cases);
-  }, [cases]);
-
-  useEffect(() => {
-    BrowserStorage.setItem(STORAGE_KEYS.AUDIT_EVENTS, auditEvents);
-  }, [auditEvents]);
+    if (isMockMode || (!isLoading && !isBackendUnavailable)) {
+      BrowserStorage.setItem(STORAGE_KEYS.CASES, cases);
+    }
+  }, [cases, isMockMode, isLoading, isBackendUnavailable]);
 
   useEffect(() => {
-    BrowserStorage.setItem(STORAGE_KEYS.CAMPAIGNS, campaigns);
-  }, [campaigns]);
+    if (isMockMode || (!isLoading && !isBackendUnavailable)) {
+      BrowserStorage.setItem(STORAGE_KEYS.AUDIT_EVENTS, auditEvents);
+    }
+  }, [auditEvents, isMockMode, isLoading, isBackendUnavailable]);
 
   useEffect(() => {
-    BrowserStorage.setItem(STORAGE_KEYS.COMMUNICATIONS, communications);
-  }, [communications]);
+    if (isMockMode || (!isLoading && !isBackendUnavailable)) {
+      BrowserStorage.setItem(STORAGE_KEYS.CAMPAIGNS, campaigns);
+    }
+  }, [campaigns, isMockMode, isLoading, isBackendUnavailable]);
+
+  useEffect(() => {
+    if (isMockMode || (!isLoading && !isBackendUnavailable)) {
+      BrowserStorage.setItem(STORAGE_KEYS.COMMUNICATIONS, communications);
+    }
+  }, [communications, isMockMode, isLoading, isBackendUnavailable]);
 
   useEffect(() => {
     BrowserStorage.setItem(STORAGE_KEYS.SERVICE_HEALTH, serviceHealth);
@@ -246,13 +280,16 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     BrowserStorage.setItem(STORAGE_KEYS.POLICY_HISTORY, policyHistory);
   }, [policyHistory]);
 
-  // Server-authoritative metrics from PostgreSQL with fallback to dataset calculation
+  // Server-authoritative metrics from PostgreSQL (No mock metric calculation in production)
   const metrics = useMemo(() => {
-    if (process.env.NEXT_PUBLIC_USE_MOCKS !== 'true' && serverMetrics) {
+    if (isMockMode) {
+      return calculateOperationalMetrics(cases);
+    }
+    if (serverMetrics) {
       return serverMetrics;
     }
-    return calculateOperationalMetrics(cases);
-  }, [cases, serverMetrics]);
+    return EMPTY_METRICS;
+  }, [isMockMode, cases, serverMetrics]);
 
   // Audit Dispatcher with standard ISO/IST timestamp representation
   const addAuditEvent = useCallback((event: Omit<AuditEvent, "id" | "timestamp">) => {
@@ -1329,6 +1366,8 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         setSelectedCaseId,
         selectedCase,
         metrics,
+        isLoading,
+        isBackendUnavailable,
         updateMerchantProfile,
         updatePolicy,
         rollbackPolicy,
