@@ -52,6 +52,7 @@ coverage/
 
 # Databases & Build artifacts
 *.db
+*.db-*
 *.sqlite
 *.sqlite3
 *.tsbuildinfo
