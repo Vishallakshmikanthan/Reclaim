@@ -11,15 +11,21 @@
 
     /* Light mode semantic colours (original) */
     --status-recovered: #10B981;
-    --status-recovered-soft: #ecfdf5; /* emerald-50 */
+    --status-recovered-soft: #ecfdf5;
+    /* emerald-50 */
     --status-at-risk: #EF4444;
-    --status-at-risk-soft: #fff1f2; /* rose-50 */
+    --status-at-risk-soft: #fff1f2;
+    /* rose-50 */
     --status-in-progress: #F59E0B;
-    --status-in-progress-soft: #fffbeb; /* amber-50 */
-    --status-escalated: #6366F1; /* Changed to match primary/brand in light mode */
-    --status-escalated-soft: #f1f5f9; /* slate-100 */
+    --status-in-progress-soft: #fffbeb;
+    /* amber-50 */
+    --status-escalated: #6366F1;
+    /* Changed to match primary/brand in light mode */
+    --status-escalated-soft: #f1f5f9;
+    /* slate-100 */
     --status-stopped: #64748B;
-    --status-stopped-soft: #f1f5f9; /* slate-100 */
+    --status-stopped-soft: #f1f5f9;
+    /* slate-100 */
 
     /* Light mode backgrounds/borders for charts & tooltips */
     --bg-surface-elevated: #ffffff;
