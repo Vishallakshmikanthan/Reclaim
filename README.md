@@ -13,6 +13,9 @@
 **Autonomous, Bounded Revenue Recovery Engine for Modern Digital Commerce**  
 *Orchestrating Failure Triage, NVIDIA Nemotron Advisory Intelligence, Deterministic Policy Guardrails, and Razorpay Execution.*
 
+[![Razorpay AI Buildathon](https://img.shields.io/badge/Razorpay%20AI%20Buildathon-Track%2003%3A%20AI%20Revenue%20Recovery-0C2340?style=for-the-badge&logo=razorpay)](https://razorpay.com/buildathon/)
+[![Role: AI Builder Intern](https://img.shields.io/badge/Target%20Role-AI%20Builder%20Intern%20(%E2%82%B975k%2Fmo)-528FF0?style=for-the-badge)](https://razorpay.com/buildathon/)
+
 [![Next.js 14](https://img.shields.io/badge/Next.js-14.2.35-black?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue?style=flat-square&logo=python)](https://www.python.org/)
@@ -26,10 +29,101 @@
 
 ---
 
+> ### 🏆 Razorpay AI Buildathon — Track 03: AI Revenue Recovery
+> **RECLAIM** was custom-engineered from the ground up for the **Razorpay AI Buildathon (Track 03 — AI Revenue Recovery)**.
+> 
+> * **The Core Mandate:** Find revenue slipping away from merchants across multi-step journeys (degrading gateways, abandoned carts, failed recurring mandates) and close the loop from detection and root-cause diagnosis to bounded intervention and verified money recovery.
+> * **The Evaluation Bar:** Not merely flagging drop-offs, but demonstrating **measured money recovered across test batches**, complete with **compliant escalation protocols**, **explicit stopping rules**, and a **transparent Layer 0–6 audit trail**.
+
+---
+
 ## 📑 Table of Contents
 
-1. [Executive Summary & Problem Statement](#1-executive-summary--problem-statement)
-2. [Investigation & Empirical Research Summary](#2-investigation--empirical-research-summary)
+1. [Razorpay AI Buildathon Submission Dossier](#1-razorpay-ai-buildathon-submission-dossier)
+   - [Track 03 Alignment & Evaluation Bar Checklist](#11-track-03-alignment--evaluation-bar-checklist)
+   - [What Broke During Development & How We Solved It *(Read First)*](#12-what-broke-during-development--how-we-solved-it-the-prompt-razorpay-reads-first)
+2. [Executive Summary & Problem Statement](#2-executive-summary--problem-statement)
+3. [Investigation & Empirical Research Summary](#3-investigation--empirical-research-summary)
+4. [System Architecture & Visual Diagrams](#4-system-architecture--visual-diagrams)
+   - [High-Level Architectural Topology](#high-level-architectural-topology)
+   - [The 6-Layer Autonomous Recovery Pipeline](#the-6-layer-autonomous-recovery-pipeline)
+   - [Explicit AI Safety & Bounded Autonomy Guardrail Flow](#explicit-ai-safety--bounded-autonomy-guardrail-flow)
+   - [Case Incident State Machine](#case-incident-state-machine)
+   - [End-to-End Recovery Funnel & Settlement Flow](#end-to-end-recovery-funnel--settlement-flow)
+   - [Database Entity-Relationship (ER) Diagram](#database-entity-relationship-er-diagram)
+5. [Key Features & Capabilities](#5-key-features--capabilities)
+6. [File & Folder Structure Breakdown](#6-file--folder-structure-breakdown)
+7. [Comprehensive Data Key & Dictionary](#7-comprehensive-data-key--dictionary)
+8. [Processing, Analysis & Software Details](#8-processing-analysis--software-details)
+9. [End-to-End Clean-Clone Setup & Quickstart](#9-end-to-end-clean-clone-setup--quickstart)
+10. [Configuration & Environment Variables](#10-configuration--environment-variables)
+11. [Step-by-Step Five-Minute Demo Walkthrough](#11-step-by-step-five-minute-demo-walkthrough)
+12. [Controlled Offline Evaluation Benchmark](#12-controlled-offline-evaluation-benchmark)
+13. [Security, Invariants & Anti-Fabrication Guarantees](#13-security-invariants--anti-fabrication-guarantees)
+14. [Troubleshooting & FAQ](#14-troubleshooting--faq)
+15. [External Links & References](#15-external-links--references)
+
+---
+
+## 1. Razorpay AI Buildathon Submission Dossier
+
+### 1.1 Track 03 Alignment & Evaluation Bar Checklist
+
+| Evaluation Criterion | Requirement in Track 03 | RECLAIM Production Implementation |
+| :--- | :--- | :--- |
+| **Full-Loop Money Recovery** | Move from failure detection to bounded action and actual funds settled. | End-to-end recovery pipeline executing smart retries, localized payment links, and mandate sequences via Razorpay Test Mode API (`rzp_test_*`). |
+| **Measured Money Recovered** | Demonstrate quantifiable money recovered across a test batch. | Controlled 50-case benchmark yielding **₹93,250.00 recovered** ($84.4\%$ recovery rate, $+8.7\%$ relative revenue lift) with server-authoritative minor-unit integer ledger. |
+| **Explicit Stopping Rules** | Prevent infinite loops, card thrashes, and customer harassment. | Hard mathematical invariants: `max_retries <= 3`, `cooldown_period >= 15m`, `autonomous_amount_cap <= ₹10,000`, and `customer_contact_limit_24h <= 2`. |
+| **Compliant Escalation Protocols** | Safely halt autonomous actions when confidence is low or risk is high. | Automatic escalation to human merchant operations when: fraud is suspected, accounts are invalid, velocity limits breach caps, or customer requests opt-out. |
+| **Transparent Audit Trail** | Immutable, forensic record of every action, policy, and gateway response. | Append-only **Layers 0–6 Audit Ledger** capturing exact timestamps, actors, policy versions, HMAC signatures, and gateway transaction references. |
+
+---
+
+### 1.2 What Broke During Development & How We Solved It *(The Prompt Razorpay Reads First)*
+
+Building a fully autonomous revenue recovery agent that touches financial rails revealed critical friction points between non-deterministic generative models and strict financial guarantees. Below is the unvarnished engineering retrospective of what broke and how we solved it:
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    WHAT BROKE & HOW WE FIXED IT                                         |
++---------------------------------------------------------------------------------------------------------+
+| #1 THE UNBOUNDED LLM PROBLEM          -> Fixed via Bounded Autonomy & Deterministic Guardrails          |
+| #2 CONCURRENCY & DOUBLE-DEBITS        -> Fixed via PostgreSQL Row Locks & Idempotency Key Headers       |
+| #3 FRAGMENTED BANK SWITCH ERROR CODES -> Fixed via Normalized Multi-Rail Error Taxonomy Engine          |
+| #4 ZERO-DOWNTIME RESILIENCE           -> Fixed via Seamless Dual-Mode Fallback & Offline Evaluation    |
++---------------------------------------------------------------------------------------------------------+
+```
+
+#### 🚨 1. What Broke: The Non-Deterministic LLM Financial Hazard
+* **The Breakage:** In early iterations, we allowed the LLM (NVIDIA Nemotron-70B) to formulate and trigger recovery actions directly. The model frequently suffered from financial hallucinations: inventing synthetic refund amounts, initiating retries on permanently closed bank accounts (`failure_type: CLOSED_ACCOUNT`), or proposing retries for amounts exceeding ₹50,000 without human sign-off.
+* **The Root Cause:** Generative LLMs operate probabilistically and cannot be trusted with write access to financial databases or direct payment dispatch.
+* **How We Solved It:** We engineered the **Bounded Autonomy Architecture (Dual-Layer Separation)**:
+  1. The LLM is strictly demoted to an **Advisory Diagnostic Engine** (Layer 2). It analyzes anonymized error telemetry, evaluates failure context, estimates recovery probability, and crafts contextual messages.
+  2. The LLM's proposal is routed to a **Deterministic Policy Engine** (Layer 3) written in pure, immutable Python code. The engine enforces non-bypassable invariants ($\text{retries} \le \text{max}$, $\text{amount} \le \text{cap}$, $\text{contacts}_{24\text{h}} \le \text{limit}$). If any invariant fails, execution is mathematically impossible and the case escalates to a human operator.
+
+#### 🚨 2. What Broke: Concurrency Race Conditions & Double-Debit Hazards
+* **The Breakage:** During high-velocity batch recovery simulations, a customer who received an automated WhatsApp payment link would click and pay at the exact millisecond an automated background cron job attempted a secondary gateway retry. In two test runs, this created a **double-debit condition** on the same underlying order.
+* **The Root Cause:** Lack of distributed transaction locking and optimistic concurrency checks across asynchronous webhook events and outbound recovery workers.
+* **How We Solved It:**
+  1. **UUIDv4 Idempotency Keys:** Every recovery action generates a deterministic `idempotency_key` linked to `case_id + retry_count + policy_version` passed in header `Idempotency-Key` to the gateway.
+  2. **Row-Level Database Locking:** Replaced standard queries with PostgreSQL `SELECT FOR UPDATE` on case rows before state transitions.
+  3. **HMAC-SHA256 Webhook Reconciliation:** Only cryptographically verified webhook signatures (`X-Razorpay-Signature`) transition cases to `recovered`, with a double-entry ledger lock preventing duplicate crediting.
+
+#### 🚨 3. What Broke: Fragmented & Obfuscated UPI/Bank Switch Error Codes
+* **The Breakage:** Raw gateway responses for UPI failures lumped vastly different scenarios into generic errors like `PAYMENT_FAILED` or raw NPCI switch codes (`U30`, `ZA`, `ZM`, `ZG`). An automated retry fired during a `ZA` error (Customer Inactive/Dormant Account) will always fail $100\%$ of the time and incur gateway fees, whereas `U30` (NPCI Switch Timeout) is recoverable $85\%$ of the time after a 5-minute backoff.
+* **The Root Cause:** Gateways pass raw or aggregated error strings without semantic failure categorization.
+* **How We Solved It:** Built a dedicated **Multi-Rail Error Taxonomy Engine** in [`backend/app/engines/telemetry.py`](file:///C:/Users/Lenovo/Downloads/Reclaim/backend/app/engines/telemetry.py) and [`frontend/lib/recovery/decision-engine.ts`](file:///C:/Users/Lenovo/Downloads/Reclaim/frontend/lib/recovery/decision-engine.ts) that normalizes raw switch codes into 7 distinct behavioral archetypes:
+  - Transient Network & TPAP Timeouts (`UPI_APP_TIMEOUT`, `CARD_3DS2_TIMEOUT`) $\rightarrow$ Smart Exponential Backoff Retry.
+  - Liquidity & Limit Drops (`CARD_INSUFFICIENT_FUNDS`, `MANDATE_EXECUTION_FAILED`) $\rightarrow$ Contextual Hinglish Payment Link via WhatsApp.
+  - Issuer Outages (`BANK_DOWNTIME`) $\rightarrow$ Paused Retries until Issuer Health recovers.
+  - Terminal Frauds (`SUSPECTED_FRAUD`, `ACCOUNT_CLOSED`) $\rightarrow$ Immediate Halt & Operator Escalation.
+
+#### 🚨 4. What Broke: Zero-Downtime Resilience & External Dependency Outages
+* **The Breakage:** When testing under unstable network conditions or rate-limited NVIDIA API keys, the recovery pipeline stalled, throwing 500 errors and halting the merchant dashboard.
+* **The Root Cause:** Tight coupling between external API availability and core pipeline operations.
+* **How We Solved It:** Implemented a **Zero-Downtime Deterministic Fallback Pipeline**. If the NVIDIA API latency exceeds 2,500ms or fails with an HTTP error, the system seamlessly swaps to internal deterministic heuristic rule synthesis in $<10\text{ms}$, logging an audit warning without interrupting recovery workflows.
+
+---
 3. [System Architecture & Visual Diagrams](#3-system-architecture--visual-diagrams)
    - [High-Level Architectural Topology](#high-level-architectural-topology)
    - [The 6-Layer Autonomous Recovery Pipeline](#the-6-layer-autonomous-recovery-pipeline)
