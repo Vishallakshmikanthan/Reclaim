@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { formatCurrency, cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
+import { useReclaim } from "@/lib/context/ReclaimContext";
 import { apiClient } from "@/lib/api/client";
 import { ControlledEvaluationResponse } from "@/lib/types";
 import { 
@@ -46,6 +47,7 @@ import {
 
 export default function EvaluationLabPage() {
   const { toast } = useToast();
+  const { seedEvaluationCommunications } = useReclaim();
 
   // Evaluation Report State (Initialized deterministically)
   const [report, setReport] = useState<EvaluationRunReport>(() => generateEvaluationReport());
@@ -108,6 +110,8 @@ export default function EvaluationLabPage() {
     } catch (e) {
       // fallback
     }
+
+    seedEvaluationCommunications();
 
     toast({
       title: "Batch Evaluation Complete 🎉",

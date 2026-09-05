@@ -102,6 +102,7 @@ interface ReclaimContextType {
   toggleCampaignStatus: (campaignId: string) => void;
   createCampaign: (config: CampaignConfig) => void;
   sendCommunicationMessage: (caseId: string, channel: CommunicationChannel, language: "English" | "Hinglish") => Promise<boolean>;
+  seedEvaluationCommunications: () => void;
 
   // Resilience & Failure Layer
   serviceHealth: Record<ServiceType, ServiceHealth>;
@@ -157,7 +158,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [communications, setCommunications] = useState<CommunicationMessage[]>(() => {
-    return isMockMode ? BrowserStorage.getItem<CommunicationMessage[]>(STORAGE_KEYS.COMMUNICATIONS, INITIAL_COMMUNICATIONS) : [];
+    return BrowserStorage.getItem<CommunicationMessage[]>(STORAGE_KEYS.COMMUNICATIONS, INITIAL_COMMUNICATIONS);
   });
 
   const [serviceHealth, setServiceHealth] = useState<Record<ServiceType, ServiceHealth>>(() => {
@@ -206,7 +207,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
           setCases(apiCases);
           setAuditEvents(apiAudit);
           setCampaigns(apiCampaigns);
-          setCommunications(apiComms);
+          setCommunications(apiComms && apiComms.length > 0 ? apiComms : (prev) => prev.length > 0 ? prev : INITIAL_COMMUNICATIONS);
           setActivePolicy(apiPolicy);
           setPolicyHistory(apiPolicyHistory);
           setServerMetrics(apiMetrics);
@@ -1243,6 +1244,62 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
     }
   }, [cases, serviceHealth, activePolicy, addAuditEvent, toast]);
 
+  const seedEvaluationCommunications = useCallback(() => {
+    const channels: CommunicationChannel[] = ["whatsapp", "sms", "email", "in_app"];
+    const languages: ("English" | "Hinglish")[] = ["Hinglish", "English"];
+    const sampleCases = cases.length > 0 ? cases : INITIAL_MOCK_CASES;
+
+    const generated: CommunicationMessage[] = sampleCases.slice(0, 12).map((c, idx) => {
+      const channel = channels[idx % channels.length];
+      const language = languages[idx % languages.length];
+      const channelName = 
+        channel === "whatsapp" ? "WhatsApp Business (Verified)" :
+        channel === "sms" ? "Gupshup SMS Gateway" :
+        channel === "email" ? "SendGrid Verified Email" : "In-App Push Notification";
+        
+      const content = generateRecoveryMessage(c, channel, language, "Evaluation Benchmark Outreach");
+      
+      return {
+        id: `COMM-EVAL-${String(Date.now()).slice(-4)}-${idx + 1}`,
+        caseId: c.id,
+        customerName: c.customer,
+        customerPhone: c.customerPhone || "+91 98765 00000",
+        amount: c.amount,
+        channel,
+        channelName,
+        language,
+        templateKey: `tpl_${channel}_${language.toLowerCase()}`,
+        content,
+        status: idx % 5 === 4 ? "BLOCKED" : "DELIVERY_CONFIRMED_SIMULATED",
+        contactCount: idx % 5 === 4 ? 2 : 1,
+        maxContacts: 2,
+        policyStatus: idx % 5 === 4 ? "Blocked" : "Approved",
+        campaignId: "CMP-001",
+        campaignName: "Smart UPI & Gateway Timeout Recovery",
+        createdAt: new Date(Date.now() - idx * 120000).toISOString(),
+        sentAt: new Date(Date.now() - idx * 120000 + 2000).toISOString(),
+        deliveredAt: new Date(Date.now() - idx * 120000 + 5000).toISOString(),
+        recoveredAfter: idx % 2 === 0,
+        transactionId: idx % 2 === 0 ? `txn_eval_${Date.now()}_${idx}` : undefined,
+      };
+    });
+
+    setCommunications((prev) => {
+      const existingIds = new Set(prev.map((p) => p.id));
+      const uniqueGenerated = generated.filter((g) => !existingIds.has(g.id));
+      return [...uniqueGenerated, ...prev];
+    });
+
+    addAuditEvent({
+      layer: "LAYER 4",
+      source: "EXECUTOR",
+      event: "COMMUNICATION_SENT_SIMULATED",
+      case: "EVAL-BATCH",
+      desc: `Generated multi-channel recovery outreach messages across WhatsApp, SMS, Email, and In-App for evaluation batch.`,
+      status: "SUCCESS",
+    });
+  }, [cases, addAuditEvent]);
+
   /**
    * Deterministic Failure Scenario Runner
    */
@@ -1388,6 +1445,7 @@ export function ReclaimProvider({ children }: { children: React.ReactNode }) {
         toggleCampaignStatus,
         createCampaign,
         sendCommunicationMessage,
+        seedEvaluationCommunications,
         injectFailure,
         restoreService,
         restoreAllServices,

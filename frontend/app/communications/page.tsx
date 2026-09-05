@@ -29,7 +29,14 @@ import { generateRecoveryMessage } from "@/lib/communications/templateEngine";
 
 export default function CommunicationsStudioPage() {
   const { toast } = useToast();
-  const { communications, cases, sendCommunicationMessage } = useReclaim();
+  const { communications, cases, sendCommunicationMessage, seedEvaluationCommunications } = useReclaim();
+
+  // Auto-seed if empty
+  React.useEffect(() => {
+    if (communications.length === 0) {
+      seedEvaluationCommunications();
+    }
+  }, [communications.length, seedEvaluationCommunications]);
 
   const [selectedMsgId, setSelectedMsgId] = useState<string>(communications[0]?.id || "");
   const [searchQuery, setSearchQuery] = useState("");
@@ -106,6 +113,23 @@ export default function CommunicationsStudioPage() {
           <p className="text-xs sm:text-sm text-slate-500 dark:text-text-muted mt-1 font-normal">
             Autonomous multi-channel recovery messaging with localized tone and contact caps
           </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              seedEvaluationCommunications();
+              toast({
+                title: "Sample Messages Generated 💬",
+                description: "Populated communications across WhatsApp, SMS, Email, and In-App channels.",
+                type: "success"
+              });
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Generate Multi-Channel Messages</span>
+          </button>
         </div>
       </div>
 

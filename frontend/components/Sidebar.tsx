@@ -5,18 +5,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useReclaim } from "@/lib/context/ReclaimContext";
-import { 
-  LayoutDashboard, 
-  AlertTriangle, 
-  Briefcase, 
-  Megaphone, 
-  MessageSquare, 
-  BarChart3, 
-  History, 
-  ShieldCheck, 
+import {
+  LayoutDashboard,
+  AlertTriangle,
+  Briefcase,
+  Megaphone,
+  MessageSquare,
+  BarChart3,
+  History,
+  ShieldCheck,
   Settings,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  BookOpen
 } from "lucide-react";
 
 interface SidebarProps {
@@ -26,8 +27,8 @@ interface SidebarProps {
   onToggleCollapse?: () => void;
 }
 
-export function Sidebar({ 
-  isOpen, 
+export function Sidebar({
+  isOpen,
   onClose,
   isCollapsed: externalIsCollapsed,
   onToggleCollapse: externalOnToggleCollapse
@@ -58,6 +59,7 @@ export function Sidebar({
         { name: "Evaluation", href: "/evaluation", icon: Sparkles, accentColor: "text-amber-400", badge: "Offline n=50" },
         { name: "Analytics", href: "/analytics", icon: BarChart3, accentColor: "text-emerald-400" },
         { name: "Audit Trail", href: "/audit", icon: History, accentColor: "text-purple-400" },
+        { name: "Docs & FAQ", href: "/docs", icon: BookOpen, accentColor: "text-emerald-400", badge: "16 Levels" },
       ]
     },
     {
@@ -73,7 +75,7 @@ export function Sidebar({
     <>
       {/* Mobile Backdrop */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm lg:hidden transition-opacity"
           onClick={onClose}
         />
@@ -117,8 +119,8 @@ export function Sidebar({
               )}
               <div className="space-y-0.5">
                 {section.items.map((item) => {
-                  const isActive = item.href === "/" 
-                    ? currentPath === "/" 
+                  const isActive = item.href === "/"
+                    ? currentPath === "/"
                     : currentPath.startsWith(item.href);
 
                   return (
@@ -130,8 +132,8 @@ export function Sidebar({
                       className={cn(
                         "group flex items-center rounded-lg text-xs font-medium transition-all duration-150",
                         isCollapsed ? "justify-center p-2.5" : "justify-between px-3 py-2",
-                        isActive 
-                          ? "bg-[#1e293b] text-white font-semibold border border-slate-700/80 shadow-sm" 
+                        isActive
+                          ? "bg-[#1e293b] text-white font-semibold border border-slate-700/80 shadow-sm"
                           : "text-slate-400 hover:text-slate-100 hover:bg-[#151c2b] border border-transparent"
                       )}
                     >
@@ -148,8 +150,8 @@ export function Sidebar({
                           isActive
                             ? "bg-slate-700 text-white"
                             : item.badge.startsWith("+") || section.title === "OPERATIONS"
-                            ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
-                            : "bg-slate-800 text-slate-400 border border-slate-700/60"
+                              ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                              : "bg-slate-800 text-slate-400 border border-slate-700/60"
                         )}>
                           {item.badge}
                         </span>
@@ -165,22 +167,22 @@ export function Sidebar({
         {/* Footer: User Profile & Collapse Toggle */}
         <div className="p-2 border-t border-[#1c2333] bg-[#090d14] flex-shrink-0 space-y-1">
           {/* User Profile Card */}
-          <Link 
+          <Link
             href="/settings"
             onClick={onClose}
-            title={isCollapsed ? "Vishal K. (Settings)" : undefined}
+            title={isCollapsed ? "Vishal Lakshmikanthan. (Settings)" : undefined}
             className={cn(
               "flex items-center rounded-lg hover:bg-[#151c2b] transition-colors border border-transparent hover:border-slate-800 group",
               isCollapsed ? "justify-center p-2" : "gap-2.5 p-2"
             )}
           >
             <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-[11px] font-bold text-white shadow-sm flex-shrink-0">
-              VK
+              VL
             </div>
             {!isCollapsed && (
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-slate-200 group-hover:text-white truncate">
-                  Vishal K.
+                  Vishal Lakshmikanthan.
                 </p>
                 <div className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>

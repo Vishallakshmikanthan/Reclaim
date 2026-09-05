@@ -27,7 +27,8 @@ import {
   ArrowRight,
   CheckCircle2,
   AlertCircle,
-  X
+  X,
+  BookOpen
 } from "lucide-react";
 import { useReclaim } from "@/lib/context/ReclaimContext";
 import { useToast } from "@/components/ui/Toast";
@@ -244,6 +245,19 @@ export function Topbar({ onMenuClick }: TopbarProps) {
               <span>Audit Trail</span>
             </Link>
 
+            {/* Docs & FAQ */}
+            <Link 
+              href="/docs"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+                currentPath.startsWith("/docs")
+                  ? "bg-[#1e293b] text-white font-semibold border border-slate-700 shadow-sm"
+                  : "text-slate-300 hover:text-white hover:bg-slate-800/50"
+              }`}
+            >
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              <span>Docs & FAQ</span>
+            </Link>
+
             {/* More Functional Dropdown */}
             <div className="relative" ref={moreRef}>
               <button 
@@ -307,6 +321,20 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                     <div>
                       <div className="font-semibold">Settings</div>
                       <div className="text-[10px] text-slate-400">API keys & model config</div>
+                    </div>
+                  </Link>
+
+                  <div className="my-1 border-t border-slate-700/60" />
+
+                  <Link
+                    href="/docs"
+                    onClick={() => setIsMoreMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800/80 transition-colors"
+                  >
+                    <BookOpen className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <div className="font-semibold">Docs & FAQ</div>
+                      <div className="text-[10px] text-slate-400">16-Level Question Bank & Docs</div>
                     </div>
                   </Link>
                 </div>
