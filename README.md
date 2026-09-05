@@ -2,13 +2,7 @@
 
 <div align="center">
 
-```
-  ____  _____ ____ _        _    ___ __  __ 
- |  _ \| ____/ ___| |      / \  |_ _|  \/  |
- | |_) |  _|| |   | |     / _ \  | || |\/| |
- |  _ <| |__| |___| |___ / ___ \ | || |  | |
- |_| \_\_____\____|_____/_/   \_\___|_|  |_|
-```
+<img src="./banner/reclaim-logo.png" alt="RECLAIM Logo Banner" width="100%" style="border-radius: 12px; margin-bottom: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);" />
 
 **Autonomous, Bounded Revenue Recovery Engine for Modern Digital Commerce**  
 *Orchestrating Failure Triage, NVIDIA Nemotron Advisory Intelligence, Deterministic Policy Guardrails, and Razorpay Execution.*
@@ -42,9 +36,27 @@
 1. [Razorpay AI Buildathon Submission Dossier](#1-razorpay-ai-buildathon-submission-dossier)
    - [Track 03 Alignment & Evaluation Bar Checklist](#11-track-03-alignment--evaluation-bar-checklist)
    - [What Broke During Development & How We Solved It *(Read First)*](#12-what-broke-during-development--how-we-solved-it-the-prompt-razorpay-reads-first)
-2. [Executive Summary & Problem Statement](#2-executive-summary--problem-statement)
-3. [Investigation & Empirical Research Summary](#3-investigation--empirical-research-summary)
-4. [System Architecture & Visual Diagrams](#4-system-architecture--visual-diagrams)
+2. [📸 Product & Prototype Showcase (16 Core Views)](#2--product--prototype-showcase)
+3. [Executive Summary & Problem Statement](#3-executive-summary--problem-statement)
+4. [Investigation & Empirical Research Summary](#4-investigation--empirical-research-summary)
+5. [System Architecture & Visual Diagrams](#5-system-architecture--visual-diagrams)
+   - [High-Level Architectural Topology](#high-level-architectural-topology)
+   - [The 6-Layer Autonomous Recovery Pipeline](#the-6-layer-autonomous-recovery-pipeline)
+   - [Explicit AI Safety & Bounded Autonomy Guardrail Flow](#explicit-ai-safety--bounded-autonomy-guardrail-flow)
+   - [Case Incident State Machine](#case-incident-state-machine)
+   - [End-to-End Recovery Funnel & Settlement Flow](#end-to-end-recovery-funnel--settlement-flow)
+   - [Database Entity-Relationship (ER) Diagram](#database-entity-relationship-er-diagram)
+6. [Key Features & Capabilities](#6-key-features--capabilities)
+7. [File & Folder Structure Breakdown](#7-file--folder-structure-breakdown)
+8. [Comprehensive Data Key & Dictionary](#8-comprehensive-data-key--dictionary)
+9. [Processing, Analysis & Software Details](#9-processing-analysis--software-details)
+10. [🛠️ End-to-End Clean-Clone Setup & Quickstart Guide](#10-️-end-to-end-clean-clone-setup--quickstart-guide)
+11. [Configuration & Environment Variables](#11-configuration--environment-variables)
+12. [Step-by-Step Five-Minute Demo Walkthrough](#12-step-by-step-five-minute-demo-walkthrough)
+13. [Controlled Offline Evaluation Benchmark](#13-controlled-offline-evaluation-benchmark)
+14. [Security, Invariants & Anti-Fabrication Guarantees](#14-security-invariants--anti-fabrication-guarantees)
+15. [Troubleshooting & FAQ](#15-troubleshooting--faq)
+16. [External Links & References](#16-external-links--references)
    - [High-Level Architectural Topology](#high-level-architectural-topology)
    - [The 6-Layer Autonomous Recovery Pipeline](#the-6-layer-autonomous-recovery-pipeline)
    - [Explicit AI Safety & Bounded Autonomy Guardrail Flow](#explicit-ai-safety--bounded-autonomy-guardrail-flow)
@@ -124,30 +136,208 @@ Building a fully autonomous revenue recovery agent that touches financial rails 
 * **How We Solved It:** Implemented a **Zero-Downtime Deterministic Fallback Pipeline**. If the NVIDIA API latency exceeds 2,500ms or fails with an HTTP error, the system seamlessly swaps to internal deterministic heuristic rule synthesis in $<10\text{ms}$, logging an audit warning without interrupting recovery workflows.
 
 ---
-3. [System Architecture & Visual Diagrams](#3-system-architecture--visual-diagrams)
-   - [High-Level Architectural Topology](#high-level-architectural-topology)
-   - [The 6-Layer Autonomous Recovery Pipeline](#the-6-layer-autonomous-recovery-pipeline)
-   - [Explicit AI Safety & Bounded Autonomy Guardrail Flow](#explicit-ai-safety--bounded-autonomy-guardrail-flow)
-   - [Case Incident State Machine](#case-incident-state-machine)
-   - [End-to-End Recovery Funnel & Settlement Flow](#end-to-end-recovery-funnel--settlement-flow)
-   - [Database Entity-Relationship (ER) Diagram](#database-entity-relationship-er-diagram)
-4. [Key Features & Capabilities](#4-key-features--capabilities)
-5. [File & Folder Structure Breakdown](#5-file--folder-structure-breakdown)
-6. [Comprehensive Data Key & Dictionary](#6-comprehensive-data-key--dictionary)
-7. [Processing, Analysis & Software Details](#7-processing-analysis--software-details)
-8. [End-to-End Clean-Clone Setup & Quickstart](#8-end-to-end-clean-clone-setup--quickstart)
-9. [Configuration & Environment Variables](#9-configuration--environment-variables)
-10. [Step-by-Step Five-Minute Demo Walkthrough](#10-step-by-step-five-minute-demo-walkthrough)
-11. [Controlled Offline Evaluation Benchmark](#11-controlled-offline-evaluation-benchmark)
-12. [Security, Invariants & Anti-Fabrication Guarantees](#12-security-invariants--anti-fabrication-guarantees)
-13. [Troubleshooting & FAQ](#13-troubleshooting--faq)
-14. [External Links & References](#14-external-links--references)
+
+## 2. 📸 Product & Prototype Showcase
+
+<div align="center">
+  <p><i>A visual tour of the 16 core views and autonomous capabilities across the RECLAIM platform</i></p>
+</div>
 
 ---
 
-## 1. Executive Summary & Problem Statement
+### 1. Merchant Revenue Recovery Control Center (Executive Dashboard)
+> Real-time command center aggregating Gross Revenue at Risk, Total Recovered Funds, System Recovery Velocity, and the Active Multi-Stage Settlement Funnel.
 
-### 1.1 The Context of Modern Payment Failures
+<p align="center">
+  <img src="./product-screenshots/Merchant%20Revenue%20Recovery%20Control%20Center.png" alt="Merchant Revenue Recovery Control Center" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Server-Authoritative Metrics**: Live tracking of ₹84,990.00 at risk, net recovered revenue, and active recovery case counts.
+* **Stage-by-Stage Recovery Funnel**: Visual stage progression across *Ingested*, *Policy Approved*, *Dispatched*, and *Cryptographically Settled*.
+
+---
+
+### 2. Revenue at Risk Incident Explorer
+> Granular categorization across UPI TPAP dropouts, 3DS2 card timeouts, netbanking latency, and recurring auto-debit mandate failures.
+
+<p align="center">
+  <img src="./product-screenshots/Revenue%20at%20risk.png" alt="Revenue at Risk Explorer" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Multi-Rail Failure Filtering**: Real-time filtering by payment rail (UPI, Cards, Mandate, Netbanking) and error code taxonomy.
+* **Expected Yield Calculations**: Algorithmic ranking calculated as $E = \text{Amount} \times P_{\text{rec}}$ to prioritize highest-value recoveries first.
+
+---
+
+### 3. Cases Registry & Lifecycle Management
+> Searchable case ledger tracking real-time status across *All Cases*, *At Risk*, *In Recovery*, *Recovered*, *Escalated*, and *Exhausted*.
+
+<p align="center">
+  <img src="./product-screenshots/Cases%20Registry.png" alt="Cases Registry" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Universal Case Lookup**: Instant search by Customer Name, Case ID (`RC-2024-081`), Gateway Reference, or Issuer Bank.
+* **Quick Action Controls**: One-click slide-over drawer inspection, batch selection, and manual operator overrides.
+
+---
+
+### 4. Batch Recovery Intelligence & Strategy Preview
+> Multi-case batch orchestrator calculating pre-flight policy eligibility, cumulative financial exposure, and strategy breakdowns before execution.
+
+<p align="center">
+  <img src="./product-screenshots/Batch%20Recovery%20Intelligence%20%26%20Preview.png" alt="Batch Recovery Intelligence and Preview" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Pre-Flight Safety Checks**: Real-time simulation ensuring no selected case violates retry caps or autonomous exposure ceilings.
+* **Smart Strategy Partitioning**: Automated assignment to smart payment links, exponential backoff retries, or human review queues.
+
+---
+
+### 5. Batch Recovery Execution & Partial-Success Isolation
+> Real-time execution report verifying successful recoveries, skipped policy blocks, and cryptographic gateway receipts.
+
+<p align="center">
+  <img src="./product-screenshots/Batch%20Recovery%20Intelligence%20Report.png" alt="Batch Recovery Intelligence Report" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Partial-Success Fault Isolation**: Ensures that individual gateway timeouts do not block or corrupt other transactions in the batch.
+* **Instant Ledger Settlement**: Real-time minor-unit updates reflecting recovered funds and policy-blocked safety interventions.
+
+---
+
+### 6. Case Intervention & Bounded AI Diagnostic Studio
+> Deep-dive case workspace pairing NVIDIA Nemotron-70B diagnostic root-cause intelligence with deterministic policy guardrail verification.
+
+<p align="center">
+  <img src="./product-screenshots/Case%20Intervention.png" alt="Case Intervention & Decision Studio" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **AI Diagnostic Card**: Plain-language technical root cause analysis, confidence scoring, and optimal recovery channel recommendation.
+* **Policy Invariant Checklist**: 5-point deterministic gatekeeper verifying retries, cooldowns, amount ceilings, and 24h contact limits.
+
+---
+
+### 7. Successfully Recovered Payment & 7-Step Lifecycle Stepper
+> Real-time visual state machine tracing every recovery event from initial detection to cryptographic settlement confirmation.
+
+<p align="center">
+  <img src="./product-screenshots/Successfully%20recovered%20Payment.png" alt="Successfully Recovered Payment Timeline" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Interactive 7-Step Stepper**: Visual execution tracking through *Detect*, *Triage*, *Sanitize*, *AI Reason*, *Policy Gate*, *Execute*, and *Settle*.
+* **Cryptographic Proof Badge**: Displays HMAC-SHA256 signature verification and Razorpay transaction identifier.
+
+---
+
+### 8. Multi-Rail Recovery Campaigns Orchestrator
+> High-velocity campaign management triggering targeted recovery workflows across specific payment corridors and merchant segments.
+
+<p align="center">
+  <img src="./product-screenshots/Recovery%20Campaigns.png" alt="Recovery Campaigns" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Targeted Campaign Sequences**: Dedicated playbooks for UPI Abandonment, High-Value Subscriptions, and Card Drop-offs.
+* **Velocity Metrics**: Track delivery rate, conversion rate, and net revenue yield per campaign cohort.
+
+---
+
+### 9. AI Multi-Channel Communications Studio
+> Localized, context-aware recovery dispatches across WhatsApp, SMS, Email, and In-App push notifications with personalized payment deep-links.
+
+<p align="center">
+  <img src="./product-screenshots/AI%20Communications%20Studio.png" alt="AI Communications Studio" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Hinglish & English Copy Generation**: Empathetic, frictionless messaging generated to match the exact failure context.
+* **Delivery & Interaction Telemetry**: Live status badges (*Delivered*, *Opened*, *Clicked*, *Paid*) with enforced 24h contact frequency ceilings.
+
+---
+
+### 10. Deterministic Policy Center & Guardrail Simulator
+> Merchant-controlled guardrail studio enabling fine-grained tuning of safety parameters with real-time exposure impact simulation.
+
+<p align="center">
+  <img src="./product-screenshots/Deterministic%20Policy%20Center.png" alt="Deterministic Policy Center" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Configurable Guardrails**: Set hard limits on Max Retries ($1\text{--}5$), Cooldown Intervals ($5\text{--}60\text{m}$), and Autonomous Amount Caps.
+* **Real-Time Policy Impact Simulator**: Visualizes how changing policy thresholds protects merchant risk before saving updates.
+
+---
+
+### 11. Layer 0–6 Forensic Immutable Audit Trail Ledger
+> Forensic compliance and operational log recording every state transition, actor, policy version, idempotency key, and cryptographic webhook.
+
+<p align="center">
+  <img src="./product-screenshots/Audit%20Trail%20Ledger.png" alt="Audit Trail Ledger" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Complete Layer 0–6 Traceability**: Forensic event audit with immutable timestamps, JSON payloads, and policy attributions.
+* **Anti-Fabrication Verification**: Direct verification that zero funds were credited without authoritative cryptographic receipts.
+
+---
+
+### 12. Controlled Evaluation Lab & Measurement Evidence
+> Dedicated evaluation dashboard demonstrating measured money recovered against naive static baselines across standardized test batches.
+
+<p align="center">
+  <img src="./product-screenshots/Evaluation%20Lab%20%26%20Measurement%20Evidence.png" alt="Evaluation Lab and Measurement Evidence" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Benchmark Metrics**: Demonstrating **84.4% recovery rate** and **+8.7% relative revenue lift** over naive static retry baselines.
+* **Zero Policy Violations**: 100% policy compliance maintained across all test evaluation batches.
+
+---
+
+### 13. Held-Out Batch Inspection & Verification Ledger
+> Case-by-case evaluation ledger validating individual model predictions, policy approvals, and settlement outcomes.
+
+<p align="center">
+  <img src="./product-screenshots/Held%20out%20Batch%20Inspection%20Ledger.png" alt="Held out Batch Inspection Ledger" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Granular Case Breakdown**: Inspect individual evaluation cases, ground-truth labels, and AI prediction accuracy.
+* **Deterministic Guardrail Audit**: Verify that policy-blocked cases were properly intercepted without executing unsafe retries.
+
+---
+
+### 14. Recovery Performance Breakdown by Failure Root Cause
+> Deep analytical breakdown correlating recovery success rates with underlying technical failure root causes.
+
+<p align="center">
+  <img src="./product-screenshots/Performance%20by%20Failure%20Root%20Cause.png" alt="Performance by Failure Root Cause" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Root Cause Analytics**: Granular recovery rates across UPI Timeouts ($85\%+$), 3DS2 Latency ($78\%$), and Mandate Limits ($65\%$).
+* **Terminal Failure Isolation**: Visual verification of zero wasted spend on terminal failure codes (`ACCOUNT_CLOSED`, `FRAUD`).
+
+---
+
+### 15. Analytics, Yield Tracking & Insights
+> Macro-level financial intelligence tracking recovery yield trends, average resolution time, and channel conversion efficiency.
+
+<p align="center">
+  <img src="./product-screenshots/Analytics%20%26%20Insights.png" alt="Analytics and Insights" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Yield Analytics**: Visual charts tracking cumulative recovered revenue versus gross revenue at risk.
+* **Channel Efficiency**: Conversion comparison between WhatsApp links, SMS notifications, and automated gateway retries.
+
+---
+
+### 16. Merchant Controls, Gateway Keys & Settings
+> Merchant configuration portal for managing Razorpay Test Mode API credentials, webhook endpoints, and notification preferences.
+
+<p align="center">
+  <img src="./product-screenshots/Merchant%20Control%20%26%20Settings.png" alt="Merchant Control and Settings" width="100%" style="border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12);" />
+</p>
+
+* **Test Mode Enforcement**: Active validation requiring `rzp_test_*` credentials to guarantee safe, zero-live-money operation.
+* **Webhook Health**: Real-time webhook delivery testing and HMAC secret configuration.
+
+## 3. Executive Summary & Problem Statement
+
+### 3.1 The Context of Modern Payment Failures
 In modern digital commerce, payment processing is treated as an instantaneous, binary event: a transaction either succeeds or fails. However, in high-velocity payment corridors (such as India's UPI, card tokenization networks, and auto-debit mandates), **5% to 15% of all checkout attempts fail** due to friction across heterogeneous banking switches, transient network timeouts, and customer-side delays.
 
 ```
@@ -173,13 +363,13 @@ In modern digital commerce, payment processing is treated as an instantaneous, b
                          - Irreversible customer churn                                     - 100% Policy Invariant Guarantee
 ```
 
-### 1.2 The Problem with Traditional Recovery
+### 3.2 The Problem with Traditional Recovery
 * **Naive Blind Retries**: Standard e-commerce cron jobs retry failed cards or mandates blindly at fixed intervals. This exacerbates issuer throttling, triggers anti-fraud blocks, inflates gateway decline fees, and risks charging customers multiple times.
 * **Customer Fatigue & Brand Churn**: Aggressive, uncoordinated reminders (SMS/Email) sent during banking switch outages annoy customers and degrade merchant brand loyalty.
 * **Double Debit Risk**: Unsynchronized retries without strict idempotency locks can charge a consumer twice for a single checkout session.
 * **Lack of Visibility & Auditability**: Merchants lack granular telemetry to differentiate between recoverable transient network drops (e.g., UPI TPAP timeout) and terminal declines (e.g., stolen card or closed bank account).
 
-### 1.3 The RECLAIM Paradigm: Bounded Autonomy
+### 3.3 The RECLAIM Paradigm: Bounded Autonomy
 **RECLAIM** is an autonomous revenue recovery engine engineered to close the loop between payment failure detection and authoritative financial reconciliation. 
 
 Operating under the guiding principle:
@@ -189,9 +379,9 @@ RECLAIM combines **LLM reasoning (NVIDIA Nemotron-70B)** for contextual root-cau
 
 ---
 
-## 2. Investigation & Empirical Research Summary
+## 4. Investigation & Empirical Research Summary
 
-### 2.1 Research Context & Study Overview
+### 4.1 Research Context & Study Overview
 | Parameter | Research Specification |
 | :--- | :--- |
 | **Study Title** | Empirical Telemetry & Autonomous Recovery Analysis in Digital Payment Ecosystems |
@@ -201,7 +391,7 @@ RECLAIM combines **LLM reasoning (NVIDIA Nemotron-70B)** for contextual root-cau
 | **Payment Rails Covered** | UPI (TPAP / PSP / NPCI Switch), 3DS2 Cards (Visa, Mastercard, RuPay), e-NACH / UPI AutoPay Mandates, Netbanking |
 | **Target Dataset** | Multi-merchant transaction failure stream ($n=50$ held-out synthetic evaluation benchmark + $100+$ live test scenarios) |
 
-### 2.2 Key Empirical Findings
+### 4.2 Key Empirical Findings
 1. **Failure Taxonomy Distribution**:
    - **42% Transient Network & Timeout Errors**: Caused by UPI Third-Party Application Provider (TPAP) app timeouts, NPCI switch drops, or 3DS2 OTP latency. Highly recoverable ($P_{\text{rec}} > 0.80$) via optimized delay retries or fallback payment links.
    - **28% Temporary Balance & Mandate Execution Limits**: Caused by end-of-month liquidity crunches or mandate velocity limits. Recoverable ($P_{\text{rec}} \approx 0.65$) via smart retry scheduling and localized Hinglish reminders.
@@ -213,7 +403,7 @@ RECLAIM combines **LLM reasoning (NVIDIA Nemotron-70B)** for contextual root-cau
 
 ---
 
-## 3. System Architecture & Visual Diagrams
+## 5. System Architecture & Visual Diagrams
 
 ### High-Level Architectural Topology
 
@@ -531,7 +721,7 @@ erDiagram
 
 ---
 
-## 4. Key Features & Capabilities
+## 6. Key Features & Capabilities
 
 * **Multi-Rail Failure Triage**: Native support for UPI TPAP timeouts, Credit/Debit card 3DS2 dropouts, Netbanking gateway timeouts, and recurring subscription e-Mandate auto-debit declines.
 * **NVIDIA Nemotron-70B Advisory Intelligence**: Generates diagnostic root cause analysis, evaluates recovery probability, and drafts localized multi-channel communications (Hinglish/English).
@@ -546,7 +736,7 @@ erDiagram
 
 ---
 
-## 5. File & Folder Structure Breakdown
+## 7. File & Folder Structure Breakdown
 
 ```
 Reclaim/
@@ -657,9 +847,9 @@ Reclaim/
 
 ---
 
-## 6. Comprehensive Data Key & Dictionary
+## 8. Comprehensive Data Key & Dictionary
 
-### 6.1 Database Schema & Key Field Definitions
+### 8.1 Database Schema & Key Field Definitions
 
 #### 1. `merchants` Table
 | Column | Type | Constraints | Description | Unit / Format |
@@ -746,9 +936,9 @@ Reclaim/
 
 ---
 
-## 7. Processing, Analysis & Software Details
+## 9. Processing, Analysis & Software Details
 
-### 7.1 Software Dependencies & Environment Specifications
+### 9.1 Software Dependencies & Environment Specifications
 
 ```
 +---------------------------------------------------------------------------------------+
@@ -772,7 +962,7 @@ Reclaim/
 +---------------------------------------------------------------------------------------+
 ```
 
-### 7.2 Key Analytical & Processing Scripts
+### 9.2 Key Analytical & Processing Scripts
 * **`backend/app/db/seed.py`**: Deterministic database seeder. Populates 10 multi-rail recovery scenarios (`RC-2024-081` through `RC-2024-090`), merchant profile `merchant_demo`, initial policies (`v1`), and Layer 0-6 audit logs.
 * **`backend/app/engines/domain.py`**: Policy Engine core logic. Implements deterministic invariant evaluation:
   $$\text{Allowed} = (R < R_{\max}) \land (A \le A_{\max}) \land (C_{24\text{h}} < C_{\max}) \land (P_{\text{rec}} \ge P_{\min})$$
@@ -781,27 +971,56 @@ Reclaim/
 
 ---
 
-## 8. End-to-End Clean-Clone Setup & Quickstart
+## 10. 🛠️ End-to-End Clean-Clone Setup & Quickstart Guide
 
-### Step 1: Clone Repository
+### 📋 Prerequisites
+Ensure you have the following installed on your machine:
+* **Node.js**: `v18.18.0` or higher ([Download Node.js](https://nodejs.org/))
+* **Python**: `3.11.0` or higher ([Download Python](https://www.python.org/))
+* **PostgreSQL**: `15+` or **Docker Desktop** ([Download Docker](https://www.docker.com/))
+* **Git**: ([Download Git](https://git-scm.com/))
+
+---
+
+### ⚡ Method 1: One-Click Quickstart (Docker Compose)
+
 ```powershell
+# 1. Clone the repository
 git clone https://github.com/Vishallakshmikanthan/Reclaim.git
 cd Reclaim
+
+# 2. Launch PostgreSQL database container
+docker compose up -d
+
+# 3. Setup and start Backend (Terminal 1)
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1  # On Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+python -m app.db.seed
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# 4. Setup and start Frontend (Terminal 2)
+cd ../frontend
+npm install
+npm run dev
 ```
+Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
-### Step 2: Configure Environment Files
+---
+
+### 💻 Method 2: Manual Local Setup (Step-by-Step)
+
+#### Step 1: Configure Environment Files
 ```powershell
-# Root template
+# In project root:
 Copy-Item .env.example .env
-
-# Backend configuration
 Copy-Item backend\.env.example backend\.env
-
-# Frontend configuration
 Copy-Item frontend\.env.example frontend\.env.local
 ```
 
-### Step 3: Setup Backend Python Environment
+#### Step 2: Setup Backend Python Environment
 ```powershell
 cd backend
 python -m venv .venv
@@ -813,54 +1032,27 @@ python -m venv .venv
 # source .venv/bin/activate
 
 pip install -r requirements.txt
-cd ..
+alembic upgrade head
+python -m app.db.seed
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+* **Interactive API Documentation**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+* **Health Endpoint**: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
-### Step 4: Setup Frontend Node Modules
+#### Step 3: Setup Frontend Next.js 14 Web UI
 ```powershell
-cd frontend
+cd ../frontend
 npm install
-cd ..
-```
-
-### Step 5: Start PostgreSQL Database
-```powershell
-# Option A: Docker Compose (Recommended)
-docker compose up -d
-
-# Option B: Local PostgreSQL Service
-# Ensure PostgreSQL is running on port 5432 with credentials:
-# postgresql+psycopg://reclaim:change-me-local@localhost:5432/reclaim
-```
-
-### Step 6: Apply Database Migrations & Seed Data
-```powershell
-cd backend
-.\.venv\Scripts\alembic.exe upgrade head
-.\.venv\Scripts\python.exe -m app.db.seed
-cd ..
-```
-
-### Step 7: Launch Backend & Frontend Services
-
-**Terminal 1 (Backend API)**:
-```powershell
-cd backend
-.\.venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-* Interactive API Documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-* Health Endpoint: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
-
-**Terminal 2 (Frontend UI)**:
-```powershell
-cd frontend
 npm run dev
 ```
-* Web Dashboard: [http://localhost:3000](http://localhost:3000)
+* **Web Dashboard**: [http://localhost:3000](http://localhost:3000)
+* **Cases Registry**: [http://localhost:3000/cases](http://localhost:3000/cases)
+* **Interactive Docs & FAQ**: [http://localhost:3000/docs](http://localhost:3000/docs)
+* **Controlled Evaluation Benchmark**: [http://localhost:3000/evaluation](http://localhost:3000/evaluation)
 
 ---
 
-## 9. Configuration & Environment Variables
+## 11. Configuration & Environment Variables
 
 | Variable | Location | Required | Default / Example | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
@@ -881,7 +1073,7 @@ npm run dev
 
 ---
 
-## 10. Step-by-Step Five-Minute Demo Walkthrough
+## 12. Step-by-Step Five-Minute Demo Walkthrough
 
 Follow this 6-step walkthrough to experience the end-to-end bounded recovery workflow:
 
@@ -914,7 +1106,7 @@ Follow this 6-step walkthrough to experience the end-to-end bounded recovery wor
 
 ---
 
-## 11. Controlled Offline Evaluation Benchmark
+## 13. Controlled Offline Evaluation Benchmark
 
 To demonstrate AI recovery efficacy without contaminating production operations, RECLAIM includes an automated offline evaluation benchmark comparing the **Deterministic Rules Baseline** against **Nemotron-Assisted Intelligence**:
 
@@ -941,7 +1133,7 @@ To demonstrate AI recovery efficacy without contaminating production operations,
 
 ---
 
-## 12. Security, Invariants & Anti-Fabrication Guarantees
+## 14. Security, Invariants & Anti-Fabrication Guarantees
 
 1. **Zero Direct AI Execution Authority**:
    - The LLM has no database write access, no gateway execution tokens, and no authority to alter policy rules. The AI acts strictly as an advisory diagnostic assistant.
@@ -956,7 +1148,7 @@ To demonstrate AI recovery efficacy without contaminating production operations,
 
 ---
 
-## 13. Troubleshooting & FAQ
+## 15. Troubleshooting & FAQ
 
 ### FAQ & Diagnostic Matrix
 
@@ -970,7 +1162,7 @@ To demonstrate AI recovery efficacy without contaminating production operations,
 
 ---
 
-## 14. External Links & References
+## 16. External Links & References
 
 ### Standards, Gateway & API Documentation
 * [National Payments Corporation of India (NPCI) — UPI Procedural Guidelines](https://www.npci.org.in/)
